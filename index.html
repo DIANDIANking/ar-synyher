@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>AR Mini Synth Workstation</title>
+  <link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+  <section class="welcome-screen" id="welcome-screen" aria-label="平台欢迎页">
+    <div class="welcome-content">
+      <h1>欢迎来到乐器增强现实（AR）视听云平台</h1>
+      <p>扫同一张乐器卡进入演示页；进入后继续对准卡片上的三行文字识别区，AR 合成器只在这张卡被识别时显示。</p>
+      <button class="welcome-start" id="start-ar" type="button">启动 AR 体验</button>
+    </div>
+  </section>
+
+  <main class="app-shell">
+    <section class="instrument-deck">
+      <section class="ar-stage awaiting-camera" id="ar-stage" aria-label="AR Mini Synth Workstation">
+        <video class="camera-feed" id="camera-feed" autoplay muted playsinline webkit-playsinline></video>
+        <canvas id="synth-canvas"></canvas>
+        <div class="stage-hud">
+          <button class="small-btn" id="camera-toggle" type="button">打开相机</button>
+          <button class="small-btn" id="reset-view" type="button">重置视角</button>
+        </div>
+        <div class="stage-prompt" id="stage-prompt">请允许相机</div>
+      </section>
+    </section>
+  </main>
+
+  <script type="module" src="./assets/app.js"></script>
+</body>
+</html>

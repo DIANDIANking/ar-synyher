@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1250" height="1390" viewBox="0 0 1250 1390">
+  <rect width="1250" height="1390" fill="#f6f3e8"/>
+  <rect x="38" y="38" width="1174" height="1314" rx="42" fill="#f6f3e8" stroke="#04120f" stroke-width="22"/>
+  <rect x="66" y="66" width="1118" height="1258" rx="20" fill="none" stroke="#35d6a4" stroke-width="5"/>
+  <rect x="88" y="88" width="1074" height="1214" rx="18" fill="none" stroke="#04120f" stroke-width="2" stroke-dasharray="22 18" opacity="0.32"/>
+
+  <rect x="58" y="58" width="86" height="86" rx="13" fill="#04120f"/>
+  <rect x="80" y="80" width="42" height="42" rx="8" fill="#f6f3e8"/>
+  <circle cx="101" cy="101" r="13" fill="#04120f"/>
+  <rect x="1106" y="58" width="86" height="86" rx="13" fill="#04120f"/>
+  <rect x="1128" y="80" width="42" height="42" rx="8" fill="#f6f3e8"/>
+  <path d="M1149 84 L1169 118 L1129 118 Z" fill="#04120f"/>
+  <rect x="58" y="1246" width="86" height="86" rx="13" fill="#04120f"/>
+  <rect x="80" y="1268" width="42" height="42" rx="8" fill="#f6f3e8"/>
+  <path d="M101 1270 L123 1289 L101 1310 L79 1289 Z" fill="#04120f"/>
+  <rect x="1106" y="1246" width="86" height="86" rx="13" fill="#04120f"/>
+  <rect x="1128" y="1268" width="42" height="42" rx="8" fill="#f6f3e8"/>
+  <g stroke="#04120f" stroke-width="7">
+    <path d="M1129 1310 L1169 1270"/>
+    <path d="M1136 1316 L1174 1278"/>
+    <path d="M1124 1300 L1158 1266"/>
+  </g>
+
+  <g opacity="0.88">
+    <circle cx="180" cy="218" r="16" fill="#39e59f"/>
+    <circle cx="1080" cy="218" r="16" fill="#836bff"/>
+    <circle cx="180" cy="1178" r="16" fill="#ffb33d"/>
+    <circle cx="1080" cy="1178" r="16" fill="#35a9ff"/>
+    <path d="M168 246 H310 M940 246 H1082 M168 1148 H310 M940 1148 H1082" stroke="#04120f" stroke-width="5" stroke-linecap="round"/>
+  </g>
+
+  <g opacity="0.95" fill="#04120f">
+    <rect x="116" y="336" width="38" height="150" rx="6"/>
+    <rect x="116" y="536" width="38" height="86" rx="6"/>
+    <rect x="116" y="676" width="38" height="188" rx="6"/>
+    <rect x="1096" y="330" width="38" height="104" rx="6"/>
+    <rect x="1096" y="500" width="38" height="178" rx="6"/>
+    <rect x="1096" y="746" width="38" height="116" rx="6"/>
+    <path d="M196 1010 L300 1010 L300 1046 L236 1046 L236 1082 L196 1082 Z"/>
+    <path d="M1054 994 L950 1050 L1054 1106 Z"/>
+    <rect x="230" y="760" width="790" height="20" rx="10" opacity="0.35"/>
+    <rect x="278" y="830" width="694" height="16" rx="8" opacity="0.28"/>
+    <rect x="360" y="1118" width="530" height="20" rx="10" opacity="0.38"/>
+  </g>
+
+  <text x="625" y="250" text-anchor="middle" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-size="92" font-weight="850" letter-spacing="0" fill="#04120f">增强现实乐器</text>
+  <text x="625" y="376" text-anchor="middle" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-size="132" font-weight="900" letter-spacing="0" fill="#04120f">合成器</text>
+  <text x="625" y="500" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="76" font-weight="760" letter-spacing="0" fill="#244a55">synthesizer</text>
+
+  <g id="non-qr-data-signature" fill="#04120f" opacity="0.92">
+    <rect x="298.0" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="353.3" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="381.0" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="436.3" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="519.3" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="547.0" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="574.6" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="657.6" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="713.0" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="740.6" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="796.0" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="879.0" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="906.6" y="565" width="17.7" height="32" rx="4"/>
+    <rect x="934.3" y="565" width="17.7" height="32" rx="4"/>
+  </g>
+
+  <image x="398" y="642" width="454" height="454" href="data:image/png;base64,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"/>
+  <rect x="508" y="815" width="234" height="72" rx="15" fill="#f6f3e8" stroke="#04120f" stroke-width="4"/>
+  <text x="625" y="865" text-anchor="middle" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-size="38" font-weight="850" letter-spacing="0" fill="#04120f">进入演示</text>
+</svg>

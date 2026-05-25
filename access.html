@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Secure AR Demo</title>
+  <link rel="stylesheet" href="./assets/style.css">
+  <style>
+    body {
+      min-height: 100svh;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      background: radial-gradient(circle at 50% 20%, rgba(57, 229, 159, 0.18), transparent 34%), #07110f;
+      color: #f6fff8;
+    }
+
+    .access-panel {
+      width: min(520px, 100%);
+      border: 1px solid rgba(99, 230, 190, 0.35);
+      background: rgba(12, 22, 22, 0.88);
+      padding: 28px;
+      box-shadow: 0 22px 80px rgba(0, 0, 0, 0.34);
+    }
+
+    .access-panel h1 {
+      margin: 0 0 10px;
+      font-size: clamp(30px, 8vw, 46px);
+      line-height: 1.04;
+    }
+
+    .access-panel p {
+      color: rgba(246, 255, 248, 0.74);
+      line-height: 1.7;
+    }
+
+    .access-form {
+      display: grid;
+      gap: 12px;
+      margin-top: 22px;
+    }
+
+    .access-form input {
+      min-height: 54px;
+      border: 1px solid rgba(99, 230, 190, 0.38);
+      background: rgba(2, 8, 7, 0.82);
+      color: #f6fff8;
+      padding: 0 16px;
+      font: 800 19px/1 Arial, "PingFang SC", sans-serif;
+      outline: none;
+    }
+
+    .access-form button {
+      min-height: 58px;
+      border: 0;
+      background: #39e59f;
+      color: #04120f;
+      font: 900 20px/1 Arial, "PingFang SC", sans-serif;
+    }
+
+    .access-status {
+      min-height: 26px;
+      color: #ffcf66;
+      font-weight: 800;
+    }
+  </style>
+</head>
+<body>
+  <section class="access-panel" aria-label="Secure AR Access">
+    <h1>Secure AR Demo</h1>
+    <p>请输入访问码，验证通过后进入 AR 演示页。进入后继续用页面内相机对准同一张乐器卡。</p>
+    <form class="access-form" id="access-form">
+      <input id="access-code" autocomplete="one-time-code" inputmode="text" placeholder="访问码" aria-label="访问码">
+      <button type="submit">进入演示</button>
+      <div class="access-status" id="access-status"></div>
+    </form>
+  </section>
+
+  <script>
+    (() => {
+      const ACCESS_CODE = "SYNTH2026";
+      const TOKEN = "card-synth-v1";
+      const ACCESS_KEY = "arSynthAccessGranted";
+      const params = new URLSearchParams(location.search);
+      const status = document.querySelector("#access-status");
+      const unlock = () => {
+        sessionStorage.setItem(ACCESS_KEY, "yes");
+        location.replace("./index.html?access=granted");
+      };
+
+      if (params.get("token") === TOKEN) unlock();
+
+      document.querySelector("#access-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const value = document.querySelector("#access-code")?.value.trim();
+        if (value === ACCESS_CODE) {
+          unlock();
+        } else if (status) {
+          status.textContent = "访问码不正确";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

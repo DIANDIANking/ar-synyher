@@ -23,7 +23,7 @@ export const CARD_TARGETS = {
     dataSignature: {
       bits: "101101001110010110100111",
       x: 0.2344,
-      y: 0.4914,
+      y: 0.4101,
       w: 0.5312,
       h: 0.023,
       minConfidence: 0.82,

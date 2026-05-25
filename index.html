@@ -8,6 +8,17 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>AR Mini Synth Workstation</title>
   <link rel="stylesheet" href="./assets/style.css">
+  <script>
+    (() => {
+      const local = ["localhost", "127.0.0.1"].includes(location.hostname);
+      const params = new URLSearchParams(location.search);
+      const key = "arSynthAccessGranted";
+      if (params.get("access") === "granted") sessionStorage.setItem(key, "yes");
+      if (!local && sessionStorage.getItem(key) !== "yes") {
+        location.replace("./access.html");
+      }
+    })();
+  </script>
 </head>
 <body>
   <section class="welcome-screen" id="welcome-screen" aria-label="平台欢迎页">

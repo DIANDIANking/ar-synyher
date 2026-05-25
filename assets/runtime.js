@@ -1688,8 +1688,9 @@ function scanTextCardMarker() {
   const frame = { imageData, width, height };
   const pose = updateMarkerFromImageTracker(scale, frame)
     || detectCardPoseFromFrame(getCardTarget(REQUIRED_CARD_ID), frame);
+  const cardTarget = getCardTarget(REQUIRED_CARD_ID);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
-    payload: "增强现实乐器\\n合成器\\nsynthesizer",
+    payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
     cardId: REQUIRED_CARD_ID,
     source: pose.source || "text-card",
     immediate: true
@@ -1735,11 +1736,15 @@ function isReliableImageTrackedPose(pose, cardTarget, frame) {
     .filter((ratio) => ratio >= MIN_IMAGE_TRACK_CORNER_RATIO)
     .length;
   const textConfidence = sampleTrackedCardTextConfidence(pose, cardTarget, frame);
+  const dataConfidence = sampleTrackedCardDataConfidence(pose, cardTarget, frame);
   pose.textConfidence = textConfidence;
+  pose.dataConfidence = dataConfidence;
+  pose.decodedPayload = cardTarget?.encodedPayload || "";
   return pose.visibleMarkers >= REQUIRED_IMAGE_TRACK_CORNERS
     && strongCorners >= REQUIRED_IMAGE_TRACK_CORNERS
     && pose.wholeCardConfidence >= MIN_IMAGE_TRACK_CONFIDENCE
-    && textConfidence >= (cardTarget?.textSignatureMinConfidence ?? 0.78);
+    && textConfidence >= (cardTarget?.textSignatureMinConfidence ?? 0.78)
+    && dataConfidence >= (cardTarget?.dataSignature?.minConfidence ?? 0.82);
 }
 
 function sampleTrackedCardTextConfidence(pose, cardTarget, frame) {
@@ -1753,6 +1758,33 @@ function sampleTrackedCardTextConfidence(pose, cardTarget, frame) {
     confidence += Math.min(1, ratio / Math.max(minRatio, 0.001));
   }
   return passed === cardTarget.textSignatureRegions.length ? confidence / cardTarget.textSignatureRegions.length : 0;
+}
+
+function sampleTrackedCardDataConfidence(pose, cardTarget, frame) {
+  const signature = cardTarget?.dataSignature;
+  if (!signature?.bits || !frame?.imageData?.data) return 1;
+  let score = 0;
+  const bits = String(signature.bits);
+  for (let index = 0; index < bits.length; index += 1) {
+    const bit = bits[index];
+    const region = {
+      x: signature.x + (signature.w / bits.length) * index + signature.w / bits.length * 0.18,
+      y: signature.y,
+      w: signature.w / bits.length * 0.64,
+      h: signature.h,
+      cols: 3,
+      rows: 4
+    };
+    const ratio = samplePoseRegionDarkRatio(pose, frame, region);
+    if (bit === "1") {
+      const minRatio = signature.oneMinDarkRatio ?? 0.18;
+      score += ratio >= minRatio ? 1 : Math.max(0, ratio / minRatio);
+    } else {
+      const limit = signature.zeroMaxDarkRatio ?? 0.13;
+      score += ratio <= limit ? 1 : Math.max(0, 1 - (ratio - limit) / Math.max(limit, 0.01));
+    }
+  }
+  return score / bits.length;
 }
 
 function samplePoseRegionDarkRatio(pose, frame, region) {

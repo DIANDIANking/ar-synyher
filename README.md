@@ -14,6 +14,8 @@ https://ar.diandianking.com/synth
 
 该地址应由你控制的域名或中转页转到本演示包的 `access.html`。
 
+本演示包已包含 `CNAME` 和 `/synth/` 入口路径：访问 `https://ar.diandianking.com/synth` 时会跳转到 `access.html?token=card-synth-v1`，再进入 AR 演示页。域名 DNS 需要设置 `CNAME ar.diandianking.com -> diandianking.github.io`。
+
 本仓库不开放完整项目源码、工程文件、核心逻辑、原始素材、模型源文件、音频源文件或可复刻项目的开发说明。
 
 © 2026 作者保留所有权利。未经许可，禁止复制、修改、二次分发、商用或用于其他项目。

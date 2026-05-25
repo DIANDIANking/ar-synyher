@@ -33,8 +33,6 @@ const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", 
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
 const REQUIRED_CARD_ID = "card-synth-v1";
 const MARKER_SCAN_INTERVAL = 0;
-const MARKER_LOST_MS = 0;
-const REQUIRED_MARKER_CORNERS = 2;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
 const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
@@ -42,28 +40,7 @@ const REQUIRED_FOUND_FRAMES = 1;
 const MARKER_CANDIDATE_RESET_MS = 420;
 const MIN_SYNTH_NOTE_HOLD_MS = 230;
 const MIN_BASS_NOTE_HOLD_MS = 280;
-const SYNTH_MODEL_BOUNDS = {
-  width: 5.75,
-  height: 2.56
-};
-const SCREEN_FIT = {
-  portrait: {
-    minWidth: 0.88,
-    idealWidth: 0.91,
-    maxWidth: 0.94,
-    hardMaxWidth: 0.96,
-    maxHeight: 0.75
-  },
-  landscape: {
-    minWidth: 0.75,
-    idealWidth: 0.82,
-    maxWidth: 0.88,
-    hardMaxWidth: 0.92,
-    maxHeight: 0.85
-  },
-  safe: 0.05
-};
-const MARKER_MODEL_WIDTH_MULTIPLIER = 3.2;
+const FIXED_SYNTH_SCALE = 1.0;
 const ORIGINAL_GUITAR_PARAMS = {
   style: "folk",
   attack: 0.002,
@@ -495,17 +472,17 @@ function releaseVoice(voice, options = {}) {
   const now = audioCtx.currentTime;
   const wait = options.force ? 0 : Math.max(0, (voice.minHoldUntil || now) - now);
   if (wait <= 0.005) {
-    noteOff(voice);
+    noteOff(voice, options);
     return;
   }
   if (voice.releaseTimer) return;
   voice.releaseTimer = window.setTimeout(() => {
     voice.releaseTimer = 0;
-    noteOff(voice);
+    noteOff(voice, options);
   }, wait * 1000);
 }
 
-function noteOff(voice) {
+function noteOff(voice, options = {}) {
   if (!voice || !audioCtx) return;
   if (voice.released) return;
   voice.released = true;
@@ -515,7 +492,7 @@ function noteOff(voice) {
   }
   const adsr = getAdsr();
   const now = audioCtx.currentTime;
-  const release = state.hold ? Math.max(adsr.release, 1.0) : adsr.release;
+  const release = options.force ? 0.035 : (state.hold ? Math.max(adsr.release, 1.0) : adsr.release);
   try {
     voice.gain.gain.cancelScheduledValues(now);
     voice.gain.gain.setTargetAtTime(0.0001, now, release / 4);
@@ -1044,6 +1021,20 @@ function cancelActiveControlPointers() {
   });
   activePointers.clear();
   dragState = null;
+}
+
+function muteOutputForMarkerLoss() {
+  if (!audioCtx || !masterGain) return;
+  const now = audioCtx.currentTime;
+  masterGain.gain.cancelScheduledValues(now);
+  masterGain.gain.setTargetAtTime(0.0001, now, 0.012);
+}
+
+function restoreOutputForMarkerFound() {
+  if (!audioCtx || !masterGain) return;
+  const now = audioCtx.currentTime;
+  masterGain.gain.cancelScheduledValues(now);
+  masterGain.gain.setTargetAtTime(state.faders.VOL, now, 0.018);
 }
 
 function flashKey(key, active) {
@@ -1864,6 +1855,7 @@ function updateMarkerFromPose(pose, scanScale, details) {
   lastCardPoseScan = pose;
   synthGroup.visible = true;
   setSynthActive(true);
+  restoreOutputForMarkerFound();
   setPrompt("AR Mini Synth Workstation");
   return true;
 }
@@ -1892,6 +1884,7 @@ function hideMarker(promptText) {
   lastCandidateAt = 0;
   lastCardPoseScan = null;
   cancelActiveControlPointers();
+  muteOutputForMarkerLoss();
   if (synthGroup) synthGroup.visible = false;
   setSynthActive(false);
   if (promptText) setPrompt(promptText);
@@ -1902,7 +1895,6 @@ function markerTargetForView(portrait) {
   const cardAnchor = card.anchor || {};
   const z = cardAnchor.zOffset ?? 0.10;
   const view = getViewWorldSize(z);
-  const scale = getMarkerLockedScale(view, cardAnchor.modelScale || 1);
   const centerOnMarker = cardAnchor.anchorMode === "qr-center" || cardAnchor.anchorMode === "card-center";
   const lift = centerOnMarker ? 0 : clamp(state.marker.size * view.height * (portrait ? 0.18 : 0.08), 0, view.height * 0.08);
   const screenYOffset = centerOnMarker ? 0 : (cardAnchor.yOffset || 0);
@@ -1912,7 +1904,7 @@ function markerTargetForView(portrait) {
     x: rawX,
     y: rawY,
     z,
-    scale,
+    scale: FIXED_SYNTH_SCALE * (cardAnchor.modelScale || 1),
     angle: state.marker.angle,
     tiltX: state.marker.tiltX,
     tiltY: state.marker.tiltY
@@ -1927,47 +1919,6 @@ function getViewWorldSize(z = 0) {
     width: height * camera.aspect,
     height
   };
-}
-
-function getScreenFitConfig(portrait) {
-  return portrait ? SCREEN_FIT.portrait : SCREEN_FIT.landscape;
-}
-
-function getScreenFitScale(view, modelScale = 1, portrait = true) {
-  const fit = getScreenFitConfig(portrait);
-  const minByWidth = (view.width * fit.minWidth) / SYNTH_MODEL_BOUNDS.width;
-  const idealByWidth = (view.width * fit.idealWidth) / SYNTH_MODEL_BOUNDS.width;
-  const maxByWidth = (view.width * fit.maxWidth) / SYNTH_MODEL_BOUNDS.width;
-  const hardMaxByWidth = (view.width * fit.hardMaxWidth) / SYNTH_MODEL_BOUNDS.width;
-  const maxByHeight = (view.height * fit.maxHeight) / SYNTH_MODEL_BOUNDS.height;
-  const maxScale = Math.min(maxByWidth, hardMaxByWidth, maxByHeight);
-  const scaledIdeal = idealByWidth * modelScale;
-  return maxScale < minByWidth
-    ? Math.max(0.05, Math.min(scaledIdeal, maxScale))
-    : clamp(scaledIdeal, minByWidth, maxScale);
-}
-
-function getUserFittedScale(view, baseScale, portrait = true) {
-  const fit = getScreenFitConfig(portrait);
-  const minByWidth = (view.width * fit.minWidth) / SYNTH_MODEL_BOUNDS.width;
-  const maxByWidth = (view.width * fit.hardMaxWidth) / SYNTH_MODEL_BOUNDS.width;
-  const maxByHeight = (view.height * fit.maxHeight) / SYNTH_MODEL_BOUNDS.height;
-  const maxScale = Math.min(maxByWidth, maxByHeight);
-  return clamp(baseScale * userTransform.scale, Math.min(minByWidth, maxScale), maxScale);
-}
-
-function getMarkerLockedScale(view, modelScale = 1) {
-  const markerWorldSize = state.marker.size * Math.min(view.width, view.height);
-  const targetWidth = markerWorldSize * MARKER_MODEL_WIDTH_MULTIPLIER * modelScale;
-  return clamp(targetWidth / SYNTH_MODEL_BOUNDS.width, 0.06, 2.2);
-}
-
-function clampCenterToSafeArea(value, viewSize, objectSize) {
-  const visibleLimit = viewSize * 0.5 - objectSize * 0.5;
-  if (visibleLimit <= 0) return 0;
-  const safeLimit = visibleLimit - viewSize * SCREEN_FIT.safe;
-  const limit = safeLimit > 0 ? safeLimit : visibleLimit;
-  return clamp(value, -limit, limit);
 }
 
 function updateAnchor(portrait) {

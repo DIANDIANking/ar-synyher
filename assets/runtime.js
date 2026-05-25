@@ -41,6 +41,10 @@ const MARKER_CANDIDATE_RESET_MS = 420;
 const MIN_SYNTH_NOTE_HOLD_MS = 230;
 const MIN_BASS_NOTE_HOLD_MS = 280;
 const FIXED_SYNTH_SCALE = 1.0;
+const USER_SCALE_LIMITS = {
+  min: 0.55,
+  max: 1.85
+};
 const ORIGINAL_GUITAR_PARAMS = {
   style: "folk",
   attack: 0.002,
@@ -132,10 +136,7 @@ let activePointers = new Map();
 let activeTouchPoints = new Map();
 let transformGesture = null;
 let userTransform = {
-  scale: 1,
-  rotationZ: 0,
-  offsetX: 0,
-  offsetY: 0
+  scale: 1
 };
 let dragState = null;
 let audioCtx = null;
@@ -168,17 +169,6 @@ function lerpAngle(a, b, t) {
 
 function pointerDistance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function pointerAngle(a, b) {
-  return Math.atan2(b.y - a.y, b.x - a.x);
-}
-
-function pointerMidpoint(a, b) {
-  return {
-    x: (a.x + b.x) * 0.5,
-    y: (a.y + b.y) * 0.5
-  };
 }
 
 function makeMaterial({ color, emissive = 0x000000, roughness = 0.62, metalness = 0.1, transparent = false, opacity = 1 }) {
@@ -247,10 +237,7 @@ function setSynthActive(active) {
 
 function resetUserTransform() {
   userTransform = {
-    scale: 1,
-    rotationZ: 0,
-    offsetX: 0,
-    offsetY: 0
+    scale: 1
   };
   transformGesture = null;
   activeTouchPoints.clear();
@@ -1468,15 +1455,25 @@ function getTwoTouchPoints() {
 }
 
 function beginTransformGesture() {
+  const [a, b] = getTwoTouchPoints();
+  if (!a || !b) return;
   cancelActiveControlPointers();
-  transformGesture = null;
-  updateDisplay(state.currentPreset, state.currentWave, "CARD ANCHOR");
+  transformGesture = {
+    startDistance: Math.max(1, pointerDistance(a, b)),
+    startScale: userTransform.scale
+  };
+  updateDisplay(state.currentPreset, state.currentWave, `SCALE ${Math.round(userTransform.scale * 100)}`);
 }
 
-function updateTransformGesture(stageRect) {
-  if (activeTouchPoints.size >= 2) {
-    cancelActiveControlPointers();
-  }
+function updateTransformGesture() {
+  if (activeTouchPoints.size < 2) return;
+  if (!transformGesture) beginTransformGesture();
+  const [a, b] = getTwoTouchPoints();
+  if (!a || !b || !transformGesture) return;
+  const distance = Math.max(1, pointerDistance(a, b));
+  const ratio = distance / transformGesture.startDistance;
+  userTransform.scale = clamp(transformGesture.startScale * ratio, USER_SCALE_LIMITS.min, USER_SCALE_LIMITS.max);
+  updateDisplay(state.currentPreset, state.currentWave, `SCALE ${Math.round(userTransform.scale * 100)}`);
 }
 
 function bindCanvasEvents(canvas) {
@@ -1514,8 +1511,7 @@ function bindCanvasEvents(canvas) {
     }
     if (activeTouchPoints.size >= 2) {
       event.preventDefault();
-      beginTransformGesture();
-      updateTransformGesture(canvas.getBoundingClientRect());
+      updateTransformGesture();
       return;
     }
     if (!dragState) return;
@@ -1904,7 +1900,7 @@ function markerTargetForView(portrait) {
     x: rawX,
     y: rawY,
     z,
-    scale: FIXED_SYNTH_SCALE * (cardAnchor.modelScale || 1),
+    scale: FIXED_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1),
     angle: state.marker.angle,
     tiltX: state.marker.tiltX,
     tiltY: state.marker.tiltY

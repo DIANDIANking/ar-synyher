@@ -41,6 +41,10 @@ const MARKER_CANDIDATE_RESET_MS = 420;
 const MIN_SYNTH_NOTE_HOLD_MS = 230;
 const MIN_BASS_NOTE_HOLD_MS = 280;
 const FIXED_SYNTH_SCALE = 1.0;
+const MARKER_REFERENCE_SIZE = 0.36;
+const MARKER_REFERENCE_DISTANCE = 6.1;
+const MARKER_MIN_DISTANCE = 2.35;
+const MARKER_MAX_DISTANCE = 12.5;
 const USER_SCALE_LIMITS = {
   min: 0.55,
   max: 1.85
@@ -1836,6 +1840,7 @@ function updateMarkerFromPose(pose, scanScale, details) {
         y: (tl.y + tr.y + br.y + bl.y) * 0.25
       };
 
+  const projectedSize = ((topW + bottomW + leftH + rightH) * 0.25) / minSide;
   state.marker = {
     locked: true,
     payload: details.payload,
@@ -1843,7 +1848,7 @@ function updateMarkerFromPose(pose, scanScale, details) {
     lastSeenAt: now,
     centerX: center.x,
     centerY: center.y,
-    size: clamp(((topW + bottomW + leftH + rightH) * 0.25) / minSide, 0.06, 0.74),
+    size: Math.max(0.001, projectedSize),
     angle: Math.atan2(tr.py - tl.py, tr.px - tl.px),
     tiltX: clamp((rightH - leftH) / Math.max(leftH + rightH, 1), -0.38, 0.38),
     tiltY: clamp((bottomW - topW) / Math.max(topW + bottomW, 1), -0.38, 0.38)
@@ -1886,21 +1891,39 @@ function hideMarker(promptText) {
   if (promptText) setPrompt(promptText);
 }
 
-function markerTargetForView(portrait) {
+function markerTargetForView() {
   const card = getCardTarget(state.marker.cardId);
   const cardAnchor = card.anchor || {};
-  const z = cardAnchor.zOffset ?? 0.10;
-  const view = getViewWorldSize(z);
-  const rawX = (state.marker.centerX - 0.5) * view.width;
-  const rawY = (0.5 - state.marker.centerY) * view.height;
+  const z = markerZFromCardSize(cardAnchor.zOffset ?? 0.10);
+  const position = screenPointToWorldAtZ(state.marker.centerX, state.marker.centerY, z);
   return {
-    x: rawX,
-    y: rawY,
+    x: position.x,
+    y: position.y,
     z,
     scale: FIXED_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1),
     angle: state.marker.angle,
     tiltX: state.marker.tiltX,
     tiltY: state.marker.tiltY
+  };
+}
+
+function markerZFromCardSize(defaultZ = 0.10) {
+  if (!camera) return defaultZ;
+  const size = Math.max(0.001, state.marker.size || MARKER_REFERENCE_SIZE);
+  const distance = clamp(
+    MARKER_REFERENCE_DISTANCE * (MARKER_REFERENCE_SIZE / size),
+    MARKER_MIN_DISTANCE,
+    MARKER_MAX_DISTANCE
+  );
+  return camera.position.z - distance;
+}
+
+function screenPointToWorldAtZ(x, y, z) {
+  if (!camera) return { x: 0, y: 0 };
+  const view = getViewWorldSize(z);
+  return {
+    x: (x - 0.5) * view.width,
+    y: (0.5 - y) * view.height
   };
 }
 
@@ -1920,7 +1943,7 @@ function updateAnchor(portrait) {
     anchor.confidence = 0;
     return;
   }
-  const target = markerTargetForView(portrait);
+  const target = markerTargetForView();
   Object.assign(anchor, target);
   anchor.confidence = 1;
 }

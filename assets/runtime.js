@@ -1702,7 +1702,7 @@ function mapVideoPointToStage(point, scanScale) {
   const shownH = video.videoHeight * coverScale;
   const px = nativeX * coverScale + (rect.width - shownW) * 0.5;
   const py = nativeY * coverScale + (rect.height - shownH) * 0.5;
-  return { x: clamp(px / rect.width, -0.2, 1.2), y: clamp(py / rect.height, -0.2, 1.2), px, py };
+  return { x: px / rect.width, y: py / rect.height, px, py };
 }
 
 function dist(a, b) {
@@ -1891,11 +1891,8 @@ function markerTargetForView(portrait) {
   const cardAnchor = card.anchor || {};
   const z = cardAnchor.zOffset ?? 0.10;
   const view = getViewWorldSize(z);
-  const centerOnMarker = cardAnchor.anchorMode === "qr-center" || cardAnchor.anchorMode === "card-center";
-  const lift = centerOnMarker ? 0 : clamp(state.marker.size * view.height * (portrait ? 0.18 : 0.08), 0, view.height * 0.08);
-  const screenYOffset = centerOnMarker ? 0 : (cardAnchor.yOffset || 0);
   const rawX = (state.marker.centerX - 0.5) * view.width;
-  const rawY = (0.5 - state.marker.centerY) * view.height + lift + screenYOffset;
+  const rawY = (0.5 - state.marker.centerY) * view.height;
   return {
     x: rawX,
     y: rawY,

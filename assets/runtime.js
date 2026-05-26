@@ -1731,11 +1731,18 @@ function isReliableImageTrackedPose(pose, cardTarget, frame) {
   pose.textConfidence = textConfidence;
   pose.dataConfidence = dataConfidence;
   pose.decodedPayload = cardTarget?.encodedPayload || "";
-  return pose.visibleMarkers >= REQUIRED_IMAGE_TRACK_CORNERS
-    && strongCorners >= REQUIRED_IMAGE_TRACK_CORNERS
-    && pose.wholeCardConfidence >= MIN_IMAGE_TRACK_CONFIDENCE
-    && textConfidence >= (cardTarget?.textSignatureMinConfidence ?? 0.78)
-    && dataConfidence >= (cardTarget?.dataSignature?.minConfidence ?? 0.82);
+  const policy = cardTarget?.recognition || {};
+  const markerConfidence = pose.wholeCardConfidence ?? 0;
+  const textMin = policy.minTextConfidence ?? cardTarget?.textSignatureMinConfidence ?? 0.42;
+  const dataMin = policy.minDataConfidence ?? cardTarget?.dataSignature?.minConfidence ?? 0.48;
+  const combinedMin = policy.minCombinedConfidence ?? 0.54;
+  const hasEnoughCorners = pose.visibleMarkers >= REQUIRED_IMAGE_TRACK_CORNERS
+    && strongCorners >= Math.max(3, REQUIRED_IMAGE_TRACK_CORNERS - 1)
+    && markerConfidence >= Math.min(MIN_IMAGE_TRACK_CONFIDENCE, policy.minCornerConfidence ?? 0.44);
+  const combined = markerConfidence * 0.48 + textConfidence * 0.34 + dataConfidence * 0.18;
+  return hasEnoughCorners
+    && (textConfidence >= textMin || dataConfidence >= dataMin || textConfidence >= textMin * 0.72)
+    && combined >= combinedMin * 0.88;
 }
 
 function sampleTrackedCardTextConfidence(pose, cardTarget, frame) {
@@ -1748,7 +1755,10 @@ function sampleTrackedCardTextConfidence(pose, cardTarget, frame) {
     if (ratio >= minRatio) passed += 1;
     confidence += Math.min(1, ratio / Math.max(minRatio, 0.001));
   }
-  return passed === cardTarget.textSignatureRegions.length ? confidence / cardTarget.textSignatureRegions.length : 0;
+  const averageConfidence = confidence / cardTarget.textSignatureRegions.length;
+  return passed >= Math.max(1, cardTarget.textSignatureRegions.length - 1)
+    ? averageConfidence
+    : averageConfidence * 0.58;
 }
 
 function sampleTrackedCardDataConfidence(pose, cardTarget, frame) {

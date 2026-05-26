@@ -13,8 +13,7 @@ export function trackCardPoseFromFrame(previousPose, cardTarget, frame = null) {
   if (!refined) return null;
   const textConfidence = sampleTextSignature(refined, cardTarget, frame);
   const dataConfidence = sampleDataSignature(refined, cardTarget, frame);
-  if (textConfidence < (cardTarget?.textSignatureMinConfidence ?? 0.78)) return null;
-  if (dataConfidence < (cardTarget?.dataSignature?.minConfidence ?? 0.82)) return null;
+  if (!isRecognizedSynthCard(refined, textConfidence, dataConfidence, cardTarget)) return null;
   return {
     ...refined,
     textConfidence,
@@ -28,7 +27,7 @@ export function detectCardPoseFromFrame(cardTarget, frame = null) {
   const candidates = findDarkSquareCandidates(frame);
   if (candidates.length < 4) return null;
 
-  const corners = chooseExtremeCorners(candidates);
+  const corners = chooseBestCardCorners(candidates, cardTarget, frame) || chooseExtremeCorners(candidates);
   if (!corners) return null;
 
   const markerRatio = cardTarget?.cornerMarkerRatio || { x: 0.84, y: 0.855 };
@@ -37,14 +36,29 @@ export function detectCardPoseFromFrame(cardTarget, frame = null) {
   const refined = refinePoseFromMarkers(base, corners, markerRatio, frame, cardTarget, "text-card");
   const textConfidence = sampleTextSignature(refined, cardTarget, frame);
   const dataConfidence = sampleDataSignature(refined, cardTarget, frame);
-  if (textConfidence < (cardTarget?.textSignatureMinConfidence ?? 0.78)) return null;
-  if (dataConfidence < (cardTarget?.dataSignature?.minConfidence ?? 0.82)) return null;
+  if (!isRecognizedSynthCard(refined, textConfidence, dataConfidence, cardTarget)) return null;
   return {
     ...refined,
     textConfidence,
     dataConfidence,
     decodedPayload: cardTarget?.encodedPayload || ""
   };
+}
+
+function isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget) {
+  if (!pose) return false;
+  const policy = cardTarget?.recognition || {};
+  const markerConfidence = pose.wholeCardConfidence ?? Math.min(1, (pose.visibleMarkers || 0) / 4);
+  const textMin = policy.minTextConfidence ?? cardTarget?.textSignatureMinConfidence ?? 0.42;
+  const dataMin = policy.minDataConfidence ?? cardTarget?.dataSignature?.minConfidence ?? 0.48;
+  const combinedMin = policy.minCombinedConfidence ?? 0.54;
+  const cornerMin = policy.minCornerConfidence ?? 0.44;
+  const hasText = textConfidence >= textMin;
+  const hasData = dataConfidence >= dataMin;
+  const combined = markerConfidence * 0.48 + textConfidence * 0.34 + dataConfidence * 0.18;
+  if (markerConfidence >= 0.96 && textConfidence >= textMin * 0.72) return true;
+  if (markerConfidence >= cornerMin && (hasText || hasData) && combined >= combinedMin) return true;
+  return markerConfidence >= 0.72 && textConfidence >= textMin * 0.82 && dataConfidence >= dataMin * 0.72;
 }
 
 function point(x = 0, y = 0) {
@@ -286,6 +300,81 @@ function chooseExtremeCorners(candidates) {
   return corners.map((corner, index) => ({ ...corner, index }));
 }
 
+function chooseBestCardCorners(candidates, cardTarget, frame) {
+  const limited = candidates
+    .slice()
+    .sort((a, b) => (b.area * b.confidence) - (a.area * a.confidence))
+    .slice(0, 22);
+  const markerRatio = cardTarget?.cornerMarkerRatio || { x: 0.84, y: 0.855 };
+  const expectedAspect = cardTarget?.cardAspect || 1250 / 1390;
+  let best = null;
+
+  for (let a = 0; a < limited.length - 3; a += 1) {
+    for (let b = a + 1; b < limited.length - 2; b += 1) {
+      for (let c = b + 1; c < limited.length - 1; c += 1) {
+        for (let d = c + 1; d < limited.length; d += 1) {
+          const ordered = orderCorners([limited[a], limited[b], limited[c], limited[d]]);
+          if (!ordered) continue;
+          const base = geometryFromMarkerCenters(ordered, markerRatio, cardTarget);
+          if (!base) continue;
+          const width = base.halfW * 2;
+          const height = base.halfH * 2;
+          const aspect = width / Math.max(height, 1);
+          if (aspect < expectedAspect * 0.70 || aspect > expectedAspect * 1.42) continue;
+          const area = polygonArea(ordered);
+          const minFrameArea = frame.width * frame.height * 0.018;
+          if (area < minFrameArea) continue;
+          const refined = refinePoseFromMarkers(base, ordered, markerRatio, frame, cardTarget, "text-card-candidate");
+          if (!refined) continue;
+          const textConfidence = sampleTextSignature(refined, cardTarget, frame);
+          const dataConfidence = sampleDataSignature(refined, cardTarget, frame);
+          const markerConfidence = refined.wholeCardConfidence ?? 0;
+          if (!isRecognizedSynthCard(refined, textConfidence, dataConfidence, cardTarget)) continue;
+          const score = markerConfidence * 2.4 + textConfidence * 2.0 + dataConfidence * 1.1 + Math.min(1, area / (frame.width * frame.height * 0.20));
+          if (!best || score > best.score) {
+            best = { score, corners: ordered };
+          }
+        }
+      }
+    }
+  }
+
+  return best?.corners || null;
+}
+
+function orderCorners(points) {
+  if (points.length !== 4) return null;
+  const center = average(points);
+  const sorted = points
+    .slice()
+    .sort((a, b) => Math.atan2(a.y - center.y, a.x - center.x) - Math.atan2(b.y - center.y, b.x - center.x));
+  let tlIndex = 0;
+  let minSum = Infinity;
+  sorted.forEach((point, index) => {
+    const sum = point.x + point.y;
+    if (sum < minSum) {
+      minSum = sum;
+      tlIndex = index;
+    }
+  });
+  const ordered = sorted.slice(tlIndex).concat(sorted.slice(0, tlIndex));
+  if (polygonArea(ordered) < 0) ordered.reverse();
+  const normalized = ordered.map((corner, index) => ({ ...corner, index }));
+  const [tl, tr, br, bl] = normalized;
+  if (length(sub(tr, tl)) < 24 || length(sub(br, bl)) < 24 || length(sub(bl, tl)) < 30 || length(sub(br, tr)) < 30) return null;
+  return normalized;
+}
+
+function polygonArea(points) {
+  let sum = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const a = points[i];
+    const b = points[(i + 1) % points.length];
+    sum += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(sum) * 0.5;
+}
+
 function geometryFromMarkerCenters(markers, markerRatio, cardTarget) {
   const [tl, tr, br, bl] = markers;
   const top = length(sub(tr, tl));
@@ -331,7 +420,10 @@ function sampleTextSignature(pose, cardTarget, frame) {
     if (ok) passed += 1;
     confidence += Math.min(1, ratio / Math.max(region.minDarkRatio ?? 0.035, 0.001));
   }
-  return passed === regions.length ? confidence / regions.length : 0;
+  const averageConfidence = confidence / regions.length;
+  return passed >= Math.max(1, regions.length - 1)
+    ? averageConfidence
+    : averageConfidence * 0.58;
 }
 
 function sampleDataSignature(pose, cardTarget, frame) {

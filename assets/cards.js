@@ -52,6 +52,7 @@ export const CARD_TARGETS = {
     hiroMarker: {
       enabled: true,
       anchorRegion: "textPanel",
+      requireTextPanelOnly: true,
       decodedInstrument: "synthesizer"
     },
     recognition: {

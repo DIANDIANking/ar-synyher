@@ -26,6 +26,7 @@ export function detectCardPoseFromFrame(cardTarget, frame = null) {
   if (!frame?.imageData?.data || !frame.width || !frame.height) return null;
   const textPanelPose = detectHiroTextMarkerPose(cardTarget, frame);
   if (textPanelPose) return textPanelPose;
+  if (cardTarget?.hiroMarker?.requireTextPanelOnly) return null;
 
   const candidates = findDarkSquareCandidates(frame);
   if (candidates.length < 4) return null;

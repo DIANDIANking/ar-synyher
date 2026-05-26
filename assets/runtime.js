@@ -475,8 +475,15 @@ function noteNameToMidi(note = "C4") {
 
 async function initSynthesizer() {
   unlockAudio();
-  selectPreset("SYNTH");
-  updateDisplay("SYNTH", state.currentWave, "MARKER READY");
+  if (!PRESETS[state.currentPreset]) {
+    selectPreset("SYNTH");
+    return true;
+  }
+  updateDisplay(
+    state.currentPreset === "DRUM" ? "DRUM KIT" : state.currentPreset,
+    state.currentMode === "synth" || state.currentMode === "bass" ? state.currentWave : "PRESET",
+    "READY"
+  );
   return true;
 }
 
@@ -493,6 +500,7 @@ async function playSynthesizerNote(options = {}) {
 
 function activateSynthesizerMarker(details = {}) {
   const config = details.markerResource || synthMarkerBinding;
+  const alreadyActive = window.activeInstrument?.cardId === config.cardId;
   if (window.activeInstrument?.cardId !== config.cardId) {
     window.activeInstrument = {
       ...config,
@@ -501,7 +509,7 @@ function activateSynthesizerMarker(details = {}) {
     };
     document.body.classList.add("synthesizer-active");
   }
-  initSynthesizer();
+  if (!alreadyActive) initSynthesizer();
 }
 
 function deactivateSynthesizerMarker() {

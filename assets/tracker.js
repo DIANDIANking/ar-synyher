@@ -24,6 +24,9 @@ export function trackCardPoseFromFrame(previousPose, cardTarget, frame = null) {
 
 export function detectCardPoseFromFrame(cardTarget, frame = null) {
   if (!frame?.imageData?.data || !frame.width || !frame.height) return null;
+  const textPanelPose = detectHiroTextMarkerPose(cardTarget, frame);
+  if (textPanelPose) return textPanelPose;
+
   const candidates = findDarkSquareCandidates(frame);
   if (candidates.length < 4) return null;
 
@@ -43,6 +46,53 @@ export function detectCardPoseFromFrame(cardTarget, frame = null) {
     dataConfidence,
     decodedPayload: cardTarget?.encodedPayload || ""
   };
+}
+
+function detectHiroTextMarkerPose(cardTarget, frame) {
+  const panel = cardTarget?.textPanel;
+  if (!cardTarget?.hiroMarker?.enabled || !panel?.w || !panel?.h) return null;
+  const candidates = findBrightPanelCandidates(frame);
+  let best = null;
+  for (const candidate of candidates) {
+    const panelAspect = panel.w / panel.h;
+    const aspect = candidate.width / Math.max(candidate.height, 1);
+    if (aspect < panelAspect * 0.58 || aspect > panelAspect * 1.62) continue;
+    const whiteRatio = candidate.fill;
+    const surroundDarkRatio = sampleRectRingDarkRatio(frame, candidate.bounds, 0.32);
+    const textDarkRatio = sampleRectDarkRatio(frame, insetBounds(candidate.bounds, 0.08), 104);
+    if (whiteRatio < (panel.minWhiteRatio ?? 0.46)) continue;
+    if (surroundDarkRatio < (panel.minDarkSurroundRatio ?? 0.28)) continue;
+    if (textDarkRatio < (panel.minTextDarkRatio ?? 0.075)) continue;
+
+    const halfW = candidate.width / (panel.w * 2);
+    const halfH = candidate.height / (panel.h * 2);
+    const panelCenterOffsetX = (panel.x + panel.w * 0.5 - 0.5) * halfW * 2;
+    const panelCenterOffsetY = (panel.y + panel.h * 0.5 - 0.5) * halfH * 2;
+    const cardCenter = point(candidate.x - panelCenterOffsetX, candidate.y - panelCenterOffsetY);
+    const base = makeGeometry(cardCenter, point(1, 0), point(0, 1), halfW, halfH, cardTarget);
+    const textConfidence = sampleTextSignature(base, cardTarget, frame);
+    const dataConfidence = 1;
+    const wholeCardConfidence = clamp(
+      whiteRatio * 0.32 + surroundDarkRatio * 0.42 + Math.min(1, textDarkRatio / 0.22) * 0.38,
+      0,
+      1
+    );
+    const pose = {
+      ...base,
+      markerRatios: [surroundDarkRatio, whiteRatio, textDarkRatio, 1],
+      visibleMarkers: 4,
+      wholeCardConfidence,
+      textConfidence,
+      dataConfidence,
+      usesWholeCardTarget: true,
+      source: "hiro-text-marker",
+      decodedPayload: cardTarget?.encodedPayload || ""
+    };
+    if (!isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget)) continue;
+    const score = wholeCardConfidence + textConfidence + Math.min(1, candidate.area / (frame.width * frame.height * 0.18));
+    if (!best || score > best.score) best = { score, pose };
+  }
+  return best?.pose || null;
 }
 
 function isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget) {
@@ -288,6 +338,148 @@ function findDarkSquareCandidates(frame) {
   return candidates
     .sort((a, b) => b.area - a.area)
     .slice(0, 36);
+}
+
+function findBrightPanelCandidates(frame) {
+  const step = Math.max(4, Math.round(Math.min(frame.width, frame.height) / 180));
+  const gridW = Math.ceil(frame.width / step);
+  const gridH = Math.ceil(frame.height / step);
+  const bright = new Uint8Array(gridW * gridH);
+  const seen = new Uint8Array(gridW * gridH);
+  const data = frame.imageData.data;
+
+  for (let gy = 0; gy < gridH; gy += 1) {
+    const y = Math.min(frame.height - 1, gy * step);
+    for (let gx = 0; gx < gridW; gx += 1) {
+      const x = Math.min(frame.width - 1, gx * step);
+      const i = (y * frame.width + x) * 4;
+      const luminance = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      if (luminance > 178) bright[gy * gridW + gx] = 1;
+    }
+  }
+
+  const candidates = [];
+  const stack = [];
+  const minSide = Math.min(frame.width, frame.height);
+  const minPanelW = Math.max(54, minSide * 0.16);
+  const minPanelH = Math.max(44, minSide * 0.10);
+  const maxPanelW = frame.width * 0.78;
+  const maxPanelH = frame.height * 0.62;
+
+  for (let gy = 0; gy < gridH; gy += 1) {
+    for (let gx = 0; gx < gridW; gx += 1) {
+      const start = gy * gridW + gx;
+      if (!bright[start] || seen[start]) continue;
+      seen[start] = 1;
+      stack.length = 0;
+      stack.push(start);
+      let count = 0;
+      let minGX = gx;
+      let maxGX = gx;
+      let minGY = gy;
+      let maxGY = gy;
+      let sumX = 0;
+      let sumY = 0;
+
+      while (stack.length) {
+        const idx = stack.pop();
+        const cx = idx % gridW;
+        const cy = Math.floor(idx / gridW);
+        count += 1;
+        sumX += cx;
+        sumY += cy;
+        minGX = Math.min(minGX, cx);
+        maxGX = Math.max(maxGX, cx);
+        minGY = Math.min(minGY, cy);
+        maxGY = Math.max(maxGY, cy);
+
+        for (let oy = -1; oy <= 1; oy += 1) {
+          for (let ox = -1; ox <= 1; ox += 1) {
+            if (Math.abs(ox) + Math.abs(oy) !== 1) continue;
+            const nx = cx + ox;
+            const ny = cy + oy;
+            if (nx < 0 || ny < 0 || nx >= gridW || ny >= gridH) continue;
+            const next = ny * gridW + nx;
+            if (!bright[next] || seen[next]) continue;
+            seen[next] = 1;
+            stack.push(next);
+          }
+        }
+      }
+
+      const width = (maxGX - minGX + 1) * step;
+      const height = (maxGY - minGY + 1) * step;
+      if (width < minPanelW || height < minPanelH || width > maxPanelW || height > maxPanelH) continue;
+      const fill = count / Math.max((maxGX - minGX + 1) * (maxGY - minGY + 1), 1);
+      if (fill < 0.38) continue;
+      candidates.push({
+        x: ((sumX / count) + 0.5) * step,
+        y: ((sumY / count) + 0.5) * step,
+        width,
+        height,
+        area: count * step * step,
+        fill,
+        bounds: {
+          x: minGX * step,
+          y: minGY * step,
+          w: width,
+          h: height
+        }
+      });
+    }
+  }
+
+  return candidates
+    .sort((a, b) => (b.area * b.fill) - (a.area * a.fill))
+    .slice(0, 12);
+}
+
+function insetBounds(bounds, insetRatio) {
+  const dx = bounds.w * insetRatio;
+  const dy = bounds.h * insetRatio;
+  return {
+    x: bounds.x + dx,
+    y: bounds.y + dy,
+    w: Math.max(1, bounds.w - dx * 2),
+    h: Math.max(1, bounds.h - dy * 2)
+  };
+}
+
+function sampleRectDarkRatio(frame, bounds, threshold = 104) {
+  if (!frame?.imageData?.data) return 0;
+  const data = frame.imageData.data;
+  const minX = Math.max(0, Math.floor(bounds.x));
+  const maxX = Math.min(frame.width - 1, Math.ceil(bounds.x + bounds.w));
+  const minY = Math.max(0, Math.floor(bounds.y));
+  const maxY = Math.min(frame.height - 1, Math.ceil(bounds.y + bounds.h));
+  let dark = 0;
+  let total = 0;
+  for (let y = minY; y <= maxY; y += 3) {
+    for (let x = minX; x <= maxX; x += 3) {
+      const i = (y * frame.width + x) * 4;
+      const luminance = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
+      if (luminance < threshold) dark += 1;
+      total += 1;
+    }
+  }
+  return total ? dark / total : 0;
+}
+
+function sampleRectRingDarkRatio(frame, bounds, expandRatio = 0.32) {
+  const dx = bounds.w * expandRatio;
+  const dy = bounds.h * expandRatio;
+  const outer = {
+    x: bounds.x - dx,
+    y: bounds.y - dy,
+    w: bounds.w + dx * 2,
+    h: bounds.h + dy * 2
+  };
+  const outerRatio = sampleRectDarkRatio(frame, outer, 112);
+  const innerRatio = sampleRectDarkRatio(frame, bounds, 112);
+  const outerArea = Math.max(1, outer.w * outer.h);
+  const innerArea = Math.max(1, bounds.w * bounds.h);
+  const ringArea = Math.max(1, outerArea - innerArea);
+  return clamp((outerRatio * outerArea - innerRatio * innerArea) / ringArea, 0, 1);
 }
 
 function chooseExtremeCorners(candidates) {

@@ -1,1 +1,1 @@
-import "./runtime.js?v=20260526-panel-card-v4";
+import "./runtime.js?v=20260526-text-block-card-v5";

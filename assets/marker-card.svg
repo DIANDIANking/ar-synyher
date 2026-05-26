@@ -94,6 +94,30 @@
     <path d="M246 1028 H782" stroke-width="4" opacity="0.65"/>
     <path d="M238 688 L318 688 M990 1092 L1062 1092 M178 1094 L246 1026" stroke-width="10"/>
   </g>
+  <g id="synth-panel-labels" fill="#020908" font-family="Arial, Helvetica, sans-serif" font-weight="900">
+    <text x="625" y="700" text-anchor="middle" font-size="30" letter-spacing="2">SYNTH CONTROL PANEL</text>
+    <text x="252" y="770" font-size="25">OSC</text>
+    <text x="840" y="728" font-size="25">FILTER</text>
+    <text x="252" y="884" font-size="25">LFO</text>
+    <text x="858" y="1002" font-size="25">PATCH</text>
+    <text x="834" y="968" font-size="24">FX</text>
+    <text x="526" y="1044" font-size="24">MOD MATRIX</text>
+  </g>
+  <g id="synth-extra-features" fill="#020908" stroke="#020908" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="518" y="736" width="296" height="20" rx="10"/>
+    <path d="M532 772 H800" stroke-width="6"/>
+    <path d="M534 774 L558 794 L582 760 L606 798 L630 762 L654 792 L678 758 L702 796 L726 764 L750 790 L774 770 L802 790" fill="none" stroke-width="7"/>
+    <rect x="838" y="778" width="34" height="34" rx="6"/>
+    <rect x="918" y="842" width="34" height="34" rx="6"/>
+    <rect x="806" y="906" width="34" height="34" rx="6"/>
+    <path d="M855 795 C900 780 928 800 935 842" fill="none" stroke-width="6"/>
+    <path d="M935 859 C890 900 870 920 823 923" fill="none" stroke-width="6"/>
+    <path d="M256 968 H334 M362 968 H440 M468 968 H512" stroke-width="8"/>
+    <rect x="264" y="980" width="32" height="32" rx="4"/>
+    <rect x="338" y="980" width="54" height="32" rx="4"/>
+    <rect x="424" y="980" width="28" height="32" rx="4"/>
+    <path d="M522 982 C562 944 612 944 650 986 C686 1026 746 1024 792 982" fill="none" stroke-width="8"/>
+  </g>
   <g id="panel-leds" fill="#020908">
     <circle cx="230" cy="706" r="9"/>
     <circle cx="1018" cy="730" r="9"/>

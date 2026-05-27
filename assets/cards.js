@@ -2,7 +2,7 @@ export const DEFAULT_CARD_ID = "hechengqi";
 
 export const markerResourceMap = {
   hechengqi: {
-    markerUrl: "./assets/markers/pattern-synth.patt?v=20260527-nested-marker-v2",
+    markerUrl: "./assets/markers/pattern-synth.patt?v=20260527-nested-marker-v3",
     markerImageUrl: "./assets/synth-nested-card.png",
     instrumentType: "synthesizer",
     modelUrl: "runtime:synth-workstation",
@@ -56,7 +56,7 @@ export const CARD_TARGETS = {
       decodedInstrument: "synthesizer"
     },
     recognition: {
-      minPatternConfidence: 0.42,
+      minPatternConfidence: 0.32,
       minTextConfidence: 0.08,
       minDataConfidence: 0.20,
       minCombinedConfidence: 0.20,
@@ -107,7 +107,7 @@ export const CARD_TARGETS = {
       decodedInstrument: "synth"
     },
     recognition: {
-      minPatternConfidence: 0.42,
+      minPatternConfidence: 0.32,
       minTextConfidence: 0.10,
       minDataConfidence: 0.20,
       minCombinedConfidence: 0.24,

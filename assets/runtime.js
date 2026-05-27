@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getCardTarget, markerResourceMap } from "./cards.js?v=20260527-nested-marker-v2";
+import { getCardTarget, markerResourceMap } from "./cards.js?v=20260527-nested-marker-v3";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, parseArPatternFile, trackCardPoseFromFrame } from "./tracker.js?v=20260527-nested-marker-v2";
+import { detectCardPoseFromFrame, parseArPatternFile, trackCardPoseFromFrame } from "./tracker.js?v=20260527-nested-marker-v3";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -1766,6 +1766,10 @@ function scanTextCardMarker() {
   const frame = { imageData, width, height };
   const cardTarget = getCardTarget(REQUIRED_CARD_ID);
   if (!markerPatternTarget && !markerPatternLoading) ensureMarkerPatternTarget(cardTarget);
+  if (!markerPatternTarget) {
+    hideMarker("正在加载 SYNTH marker");
+    return false;
+  }
   const pose = updateMarkerFromImageTracker(scale, frame)
     || detectCardPoseFromFrame(cardTarget, frame, markerPatternTarget);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {

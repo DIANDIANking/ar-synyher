@@ -60,7 +60,7 @@ export function detectCardPoseFromFrame(cardTarget, frame = null, patternTarget 
   if (!frame?.imageData?.data || !frame.width || !frame.height) return null;
   const patternPose = detectPatternCardPose(cardTarget, frame, patternTarget);
   if (patternPose) return patternPose;
-  const textPanelPose = detectHiroTextMarkerPose(cardTarget, frame, patternTarget, Boolean(patternTarget));
+  const textPanelPose = detectHiroTextMarkerPose(cardTarget, frame, Boolean(patternTarget) ? patternTarget : null, Boolean(patternTarget));
   if (textPanelPose) return textPanelPose;
   if (cardTarget?.hiroMarker?.requireTextPanelOnly && !patternTarget) return null;
 
@@ -184,7 +184,15 @@ function detectHiroTextMarkerPose(cardTarget, frame, patternTarget = null, patte
       decodedPayload: cardTarget?.encodedPayload || ""
     };
     if (!isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget)) continue;
-    const score = wholeCardConfidence + textConfidence + Math.min(1, candidate.area / (frame.width * frame.height * 0.18));
+    const inferredCardRatio = Math.max((base.halfW * 2) / frame.width, (base.halfH * 2) / frame.height);
+    const lowPattern = patternTarget && patternConfidence < getMinPatternConfidence(cardTarget, patternTarget) * 0.72;
+    const sizePenalty = lowPattern ? clamp((inferredCardRatio - 0.76) / 0.48, 0, 0.70) : 0;
+    const score = patternConfidence * 3.0
+      + surroundDarkRatio * 1.7
+      + Math.min(1, textDarkRatio / 0.18) * 1.9
+      + textConfidence * 1.15
+      + whiteRatio * 0.45
+      - sizePenalty;
     if (!best || score > best.score) best = { score, pose };
   }
   return best?.pose || null;

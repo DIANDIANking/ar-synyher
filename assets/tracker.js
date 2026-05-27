@@ -1,4 +1,34 @@
-export function trackCardPoseFromFrame(previousPose, cardTarget, frame = null) {
+export function parseArPatternFile(patternText) {
+  const sections = String(patternText || "")
+    .trim()
+    .split(/\n\s*\n/)
+    .map((section) => section.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+  const orientations = sections
+    .map((section) => {
+      const rows = section.split(/\n/).map((line) => line.trim()).filter(Boolean);
+      if (!rows.length) return null;
+      const size = rows.length;
+      const values = [];
+      for (const row of rows) {
+        const nums = row.split(/\s+/).map(Number).filter((value) => Number.isFinite(value));
+        if (nums.length >= size * 3) {
+          for (let col = 0; col < size; col += 1) {
+            const index = col * 3;
+            values.push((nums[index] + nums[index + 1] + nums[index + 2]) / (255 * 3));
+          }
+        } else if (nums.length >= size) {
+          for (let col = 0; col < size; col += 1) values.push(nums[col] / 255);
+        }
+      }
+      return values.length === size * size ? { size, values } : null;
+    })
+    .filter(Boolean);
+  return orientations.length ? { orientations, size: orientations[0].size, minConfidence: 0.58 } : null;
+}
+
+export function trackCardPoseFromFrame(previousPose, cardTarget, frame = null, patternTarget = null) {
   if (!previousPose?.location || !frame?.imageData?.data) return null;
   const base = geometryFromLocation(previousPose.location, cardTarget);
   if (!base) return null;
@@ -11,22 +41,28 @@ export function trackCardPoseFromFrame(previousPose, cardTarget, frame = null) {
   });
   const refined = refinePoseFromMarkers(base, markers, markerRatio, frame, cardTarget, "image-marker");
   if (!refined) return null;
+  const patternConfidence = samplePatternConfidence(refined, frame, patternTarget);
+  if (patternTarget && patternConfidence < getMinPatternConfidence(cardTarget, patternTarget) * 0.84) return null;
   const textConfidence = sampleTextSignature(refined, cardTarget, frame);
   const dataConfidence = sampleDataSignature(refined, cardTarget, frame);
+  refined.patternConfidence = patternConfidence;
   if (!isRecognizedSynthCard(refined, textConfidence, dataConfidence, cardTarget)) return null;
   return {
     ...refined,
+    patternConfidence,
     textConfidence,
     dataConfidence,
     decodedPayload: cardTarget?.encodedPayload || ""
   };
 }
 
-export function detectCardPoseFromFrame(cardTarget, frame = null) {
+export function detectCardPoseFromFrame(cardTarget, frame = null, patternTarget = null) {
   if (!frame?.imageData?.data || !frame.width || !frame.height) return null;
-  const textPanelPose = detectHiroTextMarkerPose(cardTarget, frame);
+  const patternPose = detectPatternCardPose(cardTarget, frame, patternTarget);
+  if (patternPose) return patternPose;
+  const textPanelPose = detectHiroTextMarkerPose(cardTarget, frame, patternTarget);
   if (textPanelPose) return textPanelPose;
-  if (cardTarget?.hiroMarker?.requireTextPanelOnly) return null;
+  if (cardTarget?.hiroMarker?.requireTextPanelOnly && !patternTarget) return null;
 
   const candidates = findDarkSquareCandidates(frame);
   if (candidates.length < 4) return null;
@@ -38,18 +74,27 @@ export function detectCardPoseFromFrame(cardTarget, frame = null) {
   const base = geometryFromMarkerCenters(corners, markerRatio, cardTarget);
   if (!base) return null;
   const refined = refinePoseFromMarkers(base, corners, markerRatio, frame, cardTarget, "text-card");
+  const patternConfidence = samplePatternConfidence(refined, frame, patternTarget);
+  if (patternTarget && patternConfidence < getMinPatternConfidence(cardTarget, patternTarget)) return null;
   const textConfidence = sampleTextSignature(refined, cardTarget, frame);
   const dataConfidence = sampleDataSignature(refined, cardTarget, frame);
+  refined.patternConfidence = patternConfidence;
   if (!isRecognizedSynthCard(refined, textConfidence, dataConfidence, cardTarget)) return null;
   return {
     ...refined,
+    patternConfidence,
     textConfidence,
     dataConfidence,
     decodedPayload: cardTarget?.encodedPayload || ""
   };
 }
 
-function detectHiroTextMarkerPose(cardTarget, frame) {
+function detectPatternCardPose(cardTarget, frame, patternTarget) {
+  if (!patternTarget?.orientations?.length) return null;
+  return detectHiroTextMarkerPose(cardTarget, frame, patternTarget, true);
+}
+
+function detectHiroTextMarkerPose(cardTarget, frame, patternTarget = null, patternRequired = false) {
   const panel = cardTarget?.textPanel;
   if (!cardTarget?.hiroMarker?.enabled || !panel?.w || !panel?.h) return null;
   const candidates = findBrightPanelCandidates(frame);
@@ -71,6 +116,8 @@ function detectHiroTextMarkerPose(cardTarget, frame) {
     const panelCenterOffsetY = (panel.y + panel.h * 0.5 - 0.5) * halfH * 2;
     const cardCenter = point(candidate.x - panelCenterOffsetX, candidate.y - panelCenterOffsetY);
     const base = makeGeometry(cardCenter, point(1, 0), point(0, 1), halfW, halfH, cardTarget);
+    const patternConfidence = samplePatternConfidence(base, frame, patternTarget);
+    if (patternRequired && patternConfidence < getMinPatternConfidence(cardTarget, patternTarget)) continue;
     const textConfidence = sampleTextSignature(base, cardTarget, frame);
     const dataConfidence = 1;
     const wholeCardConfidence = clamp(
@@ -83,10 +130,11 @@ function detectHiroTextMarkerPose(cardTarget, frame) {
       markerRatios: [surroundDarkRatio, whiteRatio, textDarkRatio, 1],
       visibleMarkers: 4,
       wholeCardConfidence,
+      patternConfidence,
       textConfidence,
       dataConfidence,
       usesWholeCardTarget: true,
-      source: "hiro-text-marker",
+      source: patternRequired ? "patt-marker" : "hiro-text-marker",
       recognizedText: cardTarget?.recognizedText || cardTarget?.markerText?.[0] || "",
       resolvedInstrument: cardTarget?.resolvedInstrument || cardTarget?.instrumentId || "synthesizer",
       decodedPayload: cardTarget?.encodedPayload || ""
@@ -102,6 +150,9 @@ function isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget)
   if (!pose) return false;
   const policy = cardTarget?.recognition || {};
   const markerConfidence = pose.wholeCardConfidence ?? Math.min(1, (pose.visibleMarkers || 0) / 4);
+  const patternConfidence = pose.patternConfidence ?? 0;
+  const patternMin = policy.minPatternConfidence ?? 0.58;
+  if (patternConfidence >= patternMin) return true;
   const textMin = policy.minTextConfidence ?? cardTarget?.textSignatureMinConfidence ?? 0.42;
   const dataMin = policy.minDataConfidence ?? cardTarget?.dataSignature?.minConfidence ?? 0.48;
   const combinedMin = policy.minCombinedConfidence ?? 0.54;
@@ -112,6 +163,10 @@ function isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget)
   if (markerConfidence >= 0.96 && textConfidence >= textMin * 0.72) return true;
   if (markerConfidence >= cornerMin && (hasText || hasData) && combined >= combinedMin) return true;
   return markerConfidence >= 0.72 && textConfidence >= textMin * 0.82 && dataConfidence >= dataMin * 0.72;
+}
+
+function getMinPatternConfidence(cardTarget, patternTarget) {
+  return cardTarget?.recognition?.minPatternConfidence ?? patternTarget?.minConfidence ?? 0.58;
 }
 
 function point(x = 0, y = 0) {
@@ -671,6 +726,52 @@ function sampleCardRegionDarkRatio(pose, frame, region) {
     }
   }
   return total ? dark / total : 0;
+}
+
+function samplePatternConfidence(pose, frame, patternTarget) {
+  if (!pose || !frame?.imageData?.data || !patternTarget?.orientations?.length) return 0;
+  const size = patternTarget.size || patternTarget.orientations[0]?.size || 16;
+  const actual = [];
+  const data = frame.imageData.data;
+  for (let row = 0; row < size; row += 1) {
+    for (let col = 0; col < size; col += 1) {
+      const nx = (col + 0.5) / size;
+      const ny = (row + 0.5) / size;
+      const p = add(
+        add(pose.center, mul(pose.xUnit, (nx - 0.5) * pose.halfW * 2)),
+        mul(pose.yUnit, (ny - 0.5) * pose.halfH * 2)
+      );
+      const x = Math.round(p.x);
+      const y = Math.round(p.y);
+      if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) {
+        actual.push(null);
+        continue;
+      }
+      const i = (y * frame.width + x) * 4;
+      actual.push((data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114) / 255);
+    }
+  }
+
+  let best = 0;
+  for (const orientation of patternTarget.orientations) {
+    if (!orientation?.values || orientation.values.length !== actual.length) continue;
+    let score = 0;
+    let total = 0;
+    for (let index = 0; index < actual.length; index += 1) {
+      const value = actual[index];
+      if (value == null) continue;
+      const expected = orientation.values[index];
+      const expectedBinary = expected < 0.50 ? 0 : 1;
+      const actualBinary = value < 0.50 ? 0 : 1;
+      const binaryScore = expectedBinary === actualBinary ? 1 : 0;
+      const tonalScore = 1 - Math.min(1, Math.abs(value - expected) * 1.45);
+      const expectedWeight = Math.abs(expected - 0.5) * 1.3 + 0.35;
+      score += (binaryScore * 0.72 + tonalScore * 0.28) * expectedWeight;
+      total += expectedWeight;
+    }
+    best = Math.max(best, total ? score / total : 0);
+  }
+  return clamp(best, 0, 1);
 }
 
 function refinePoseFromMarkers(base, markers, markerRatio, frame, cardTarget, source) {

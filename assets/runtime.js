@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getCardTarget, markerResourceMap } from "./cards.js?v=20260527-entry-gate-v1";
+import { getCardTarget, markerResourceMap } from "./cards.js?v=20260527-patt-marker-v1";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260527-entry-gate-v1";
+import { detectCardPoseFromFrame, parseArPatternFile, trackCardPoseFromFrame } from "./tracker.js?v=20260527-patt-marker-v1";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -136,6 +136,8 @@ let raycaster = null;
 let pointer = null;
 let anchor = createEmptyAnchor();
 let lastCardPoseScan = null;
+let markerPatternTarget = null;
+let markerPatternLoading = null;
 let foundFrameCount = 0;
 let lastCandidateAt = 0;
 let interactives = [];
@@ -1687,9 +1689,35 @@ function getScanner() {
   return scanCtx ? { canvas: scanCanvas, ctx: scanCtx } : null;
 }
 
+async function ensureMarkerPatternTarget(cardTarget = getCardTarget(REQUIRED_CARD_ID)) {
+  if (markerPatternTarget || markerPatternLoading) return markerPatternLoading;
+  const url = cardTarget?.markerResource?.markerUrl;
+  if (!url) return null;
+  markerPatternLoading = fetch(url, { cache: "no-store" })
+    .then((response) => {
+      if (!response.ok) throw new Error(`Pattern load failed: ${response.status}`);
+      return response.text();
+    })
+    .then((text) => {
+      markerPatternTarget = parseArPatternFile(text);
+      if (!markerPatternTarget) throw new Error("Pattern parse failed");
+      return markerPatternTarget;
+    })
+    .catch((error) => {
+      console.warn("[marker] .patt load failed", error);
+      markerPatternTarget = null;
+      return null;
+    })
+    .finally(() => {
+      markerPatternLoading = null;
+    });
+  return markerPatternLoading;
+}
+
 function startMarkerTracking() {
   if (markerFrame) return;
   lastScanAt = 0;
+  ensureMarkerPatternTarget(getCardTarget(REQUIRED_CARD_ID));
   markerFrame = requestAnimationFrame(scanMarkerFrame);
 }
 
@@ -1736,9 +1764,10 @@ function scanTextCardMarker() {
   scanner.ctx.drawImage(video, 0, 0, width, height);
   const imageData = scanner.ctx.getImageData(0, 0, width, height);
   const frame = { imageData, width, height };
-  const pose = updateMarkerFromImageTracker(scale, frame)
-    || detectCardPoseFromFrame(getCardTarget(REQUIRED_CARD_ID), frame);
   const cardTarget = getCardTarget(REQUIRED_CARD_ID);
+  if (!markerPatternTarget && !markerPatternLoading) ensureMarkerPatternTarget(cardTarget);
+  const pose = updateMarkerFromImageTracker(scale, frame)
+    || detectCardPoseFromFrame(cardTarget, frame, markerPatternTarget);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
     payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
     cardId: REQUIRED_CARD_ID,
@@ -1778,14 +1807,17 @@ function dist(a, b) {
 function updateMarkerFromImageTracker(scanScale, frame) {
   if (!lastCardPoseScan || !state.marker.cardId) return false;
   const cardTarget = getCardTarget(state.marker.cardId);
-  if (cardTarget?.hiroMarker?.requireTextPanelOnly) return false;
-  const pose = trackCardPoseFromFrame(lastCardPoseScan, cardTarget, frame);
-  if (!isReliableImageTrackedPose(pose, cardTarget, frame)) return false;
+  const pose = trackCardPoseFromFrame(lastCardPoseScan, cardTarget, frame, markerPatternTarget);
+  if (!isReliableImageTrackedPose(pose, cardTarget, frame, markerPatternTarget)) return false;
   return pose;
 }
 
-function isReliableImageTrackedPose(pose, cardTarget, frame) {
+function isReliableImageTrackedPose(pose, cardTarget, frame, patternTarget = null) {
   if (!pose) return false;
+  if (patternTarget) {
+    const minPattern = cardTarget?.recognition?.minPatternConfidence ?? patternTarget.minConfidence ?? 0.58;
+    if ((pose.patternConfidence ?? 0) >= minPattern * 0.84) return true;
+  }
   const strongCorners = (pose.markerRatios || [])
     .filter((ratio) => ratio >= MIN_IMAGE_TRACK_CORNER_RATIO)
     .length;

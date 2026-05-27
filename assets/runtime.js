@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getCardTarget, markerResourceMap } from "./cards.js?v=20260527-patt-marker-v1";
+import { getCardTarget, markerResourceMap } from "./cards.js?v=20260527-patt-marker-v2";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, parseArPatternFile, trackCardPoseFromFrame } from "./tracker.js?v=20260527-patt-marker-v1";
+import { detectCardPoseFromFrame, parseArPatternFile, trackCardPoseFromFrame } from "./tracker.js?v=20260527-patt-marker-v2";
 
 const $ = (selector) => document.querySelector(selector);
 

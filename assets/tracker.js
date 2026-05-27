@@ -412,15 +412,15 @@ function findBrightPanelCandidates(frame) {
       const x = Math.min(frame.width - 1, gx * step);
       const i = (y * frame.width + x) * 4;
       const luminance = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-      if (luminance > 178) bright[gy * gridW + gx] = 1;
+      if (luminance > 148) bright[gy * gridW + gx] = 1;
     }
   }
 
   const candidates = [];
   const stack = [];
   const minSide = Math.min(frame.width, frame.height);
-  const minPanelW = Math.max(54, minSide * 0.16);
-  const minPanelH = Math.max(44, minSide * 0.10);
+  const minPanelW = Math.max(34, minSide * 0.095);
+  const minPanelH = Math.max(30, minSide * 0.075);
   const maxPanelW = frame.width * 0.78;
   const maxPanelH = frame.height * 0.62;
 
@@ -469,7 +469,7 @@ function findBrightPanelCandidates(frame) {
       const height = (maxGY - minGY + 1) * step;
       if (width < minPanelW || height < minPanelH || width > maxPanelW || height > maxPanelH) continue;
       const fill = count / Math.max((maxGX - minGX + 1) * (maxGY - minGY + 1), 1);
-      if (fill < 0.38) continue;
+      if (fill < 0.22) continue;
       candidates.push({
         x: ((sumX / count) + 0.5) * step,
         y: ((sumY / count) + 0.5) * step,

@@ -2,7 +2,7 @@ export const DEFAULT_CARD_ID = "hechengqi";
 
 export const markerResourceMap = {
   hechengqi: {
-    markerUrl: "./assets/markers/pattern-hechengqi.patt",
+    markerUrl: "./assets/markers/pattern-hechengqi.patt?v=20260527-patt-marker-v2",
     markerImageUrl: "./assets/marker-card.png",
     instrumentType: "synthesizer",
     modelUrl: "runtime:synth-workstation",
@@ -45,9 +45,9 @@ export const CARD_TARGETS = {
       y: 0.30,
       w: 0.40,
       h: 0.40,
-      minWhiteRatio: 0.38,
-      minDarkSurroundRatio: 0.34,
-      minTextDarkRatio: 0.10
+      minWhiteRatio: 0.24,
+      minDarkSurroundRatio: 0.20,
+      minTextDarkRatio: 0.045
     },
     hiroMarker: {
       enabled: true,
@@ -56,11 +56,11 @@ export const CARD_TARGETS = {
       decodedInstrument: "synthesizer"
     },
     recognition: {
-      minPatternConfidence: 0.58,
-      minTextConfidence: 0.16,
+      minPatternConfidence: 0.42,
+      minTextConfidence: 0.08,
       minDataConfidence: 0.20,
-      minCombinedConfidence: 0.30,
-      minCornerConfidence: 0.18,
+      minCombinedConfidence: 0.20,
+      minCornerConfidence: 0.12,
       strictDataSignature: false
     },
     anchor: {
@@ -97,9 +97,9 @@ export const CARD_TARGETS = {
       y: 0.312,
       w: 0.496,
       h: 0.312,
-      minWhiteRatio: 0.52,
-      minDarkSurroundRatio: 0.34,
-      minTextDarkRatio: 0.070
+      minWhiteRatio: 0.28,
+      minDarkSurroundRatio: 0.20,
+      minTextDarkRatio: 0.045
     },
     hiroMarker: {
       enabled: true,
@@ -107,11 +107,11 @@ export const CARD_TARGETS = {
       decodedInstrument: "synth"
     },
     recognition: {
-      minPatternConfidence: 0.58,
-      minTextConfidence: 0.30,
+      minPatternConfidence: 0.42,
+      minTextConfidence: 0.10,
       minDataConfidence: 0.20,
-      minCombinedConfidence: 0.42,
-      minCornerConfidence: 0.24,
+      minCombinedConfidence: 0.24,
+      minCornerConfidence: 0.14,
       strictDataSignature: false
     },
     anchor: {

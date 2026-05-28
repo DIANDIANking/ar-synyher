@@ -1984,8 +1984,13 @@ function scanTextCardMarker() {
   scanner.ctx.drawImage(video, 0, 0, width, height);
   const imageData = scanner.ctx.getImageData(0, 0, width, height);
   const frame = { imageData, width, height };
-  const pose = updateMarkerFromImageTracker(scale, frame)
-    || detectAnyCardPoseFromFrame(frame);
+  const detectedPose = detectAnyCardPoseFromFrame(frame);
+  const trackingPose = detectedPose?.cardId !== state.marker.cardId
+    ? null
+    : updateMarkerFromImageTracker(scale, frame);
+  const pose = detectedPose && detectedPose.cardId !== state.marker.cardId
+    ? detectedPose
+    : trackingPose || detectedPose;
   const cardId = pose?.cardId || REQUIRED_CARD_ID;
   const cardTarget = getCardTarget(cardId);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {

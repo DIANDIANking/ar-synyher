@@ -1,1 +1,1 @@
-import "./runtime.js?v=20260527-entry-gate-v1";
+import "./runtime.js?v=20260527-audio-controls-v1";

@@ -40,9 +40,11 @@ const REQUIRED_FOUND_FRAMES = 1;
 const MARKER_CANDIDATE_RESET_MS = 420;
 const MIN_SYNTH_NOTE_HOLD_MS = 230;
 const MIN_BASS_NOTE_HOLD_MS = 280;
-const LOCAL_SYNTH_SCALE = 1.0;
+const FIXED_SYNTH_SCALE = 1.0;
 const MARKER_REFERENCE_SIZE = 0.36;
 const MARKER_REFERENCE_DISTANCE = 6.1;
+const MARKER_MIN_DISTANCE = 2.35;
+const MARKER_MAX_DISTANCE = 12.5;
 const USER_SCALE_LIMITS = {
   min: 0.55,
   max: 1.85
@@ -106,8 +108,7 @@ const state = {
     size: 0.24,
     angle: 0,
     tiltX: 0,
-    tiltY: 0,
-    anchorPose: null
+    tiltY: 0
   },
   lastFreq: null
 };
@@ -131,7 +132,6 @@ let scanCtx = null;
 let scene = null;
 let camera = null;
 let renderer = null;
-let markerRoot = null;
 let synthGroup = null;
 let screenMaterial = null;
 let raycaster = null;
@@ -1117,15 +1117,10 @@ function createScene() {
   rim.position.set(-2.4, 1.2, 2.8);
   scene.add(rim);
 
-  markerRoot = new THREE.Group();
-  markerRoot.name = "AR_Pattern_Marker_Root";
-  markerRoot.visible = false;
-  scene.add(markerRoot);
-
   synthGroup = new THREE.Group();
   synthGroup.name = "AR_Mini_Synth_Workstation";
   synthGroup.visible = false;
-  markerRoot.add(synthGroup);
+  scene.add(synthGroup);
   buildSynthModel();
   resizeCanvas();
   bindCanvasEvents(canvas);
@@ -1673,7 +1668,6 @@ function stopCameraMode() {
   stopMarkerTracking();
   state.marker.locked = false;
   anchor.confidence = 0;
-  if (markerRoot) markerRoot.visible = false;
   if (synthGroup) synthGroup.visible = false;
   setSynthActive(false);
   setStageWaiting(true);
@@ -1921,10 +1915,6 @@ function updateMarkerFromPose(pose, scanScale, details) {
       };
 
   const projectedSize = ((topW + bottomW + leftH + rightH) * 0.25) / minSide;
-  const angle = Math.atan2(tr.py - tl.py, tr.px - tl.px);
-  const tiltX = (rightH - leftH) / Math.max(leftH + rightH, 1);
-  const tiltY = (bottomW - topW) / Math.max(topW + bottomW, 1);
-  const anchorPose = markerPoseFromStage(center, projectedSize, angle, tiltX, tiltY);
   state.marker = {
     locked: true,
     payload: details.payload,
@@ -1935,13 +1925,11 @@ function updateMarkerFromPose(pose, scanScale, details) {
     centerX: center.x,
     centerY: center.y,
     size: Math.max(0.001, projectedSize),
-    angle,
-    tiltX,
-    tiltY,
-    anchorPose
+    angle: Math.atan2(tr.py - tl.py, tr.px - tl.px),
+    tiltX: clamp((rightH - leftH) / Math.max(leftH + rightH, 1), -0.38, 0.38),
+    tiltY: clamp((bottomW - topW) / Math.max(topW + bottomW, 1), -0.38, 0.38)
   };
   lastCardPoseScan = pose;
-  if (markerRoot) markerRoot.visible = true;
   synthGroup.visible = true;
   setSynthActive(true);
   activateSynthesizerMarker(details);
@@ -1969,7 +1957,6 @@ function enforceMarkerTimeout(now = performance.now()) {
 function hideMarker(promptText) {
   state.marker.locked = false;
   state.marker.lastSeenAt = 0;
-  state.marker.anchorPose = null;
   anchor = createEmptyAnchor();
   foundFrameCount = 0;
   lastCandidateAt = 0;
@@ -1977,42 +1964,48 @@ function hideMarker(promptText) {
   cancelActiveControlPointers();
   muteOutputForMarkerLoss();
   deactivateSynthesizerMarker();
-  if (markerRoot) markerRoot.visible = false;
   if (synthGroup) synthGroup.visible = false;
   setSynthActive(false);
   if (promptText) setPrompt(promptText);
 }
 
-function markerPoseFromStage(center, projectedSize, angle, tiltX, tiltY) {
-  const z = markerZFromProjectedSize(projectedSize);
-  const position = projectStagePointToWorldAtZ(center.x, center.y, z);
+function markerTargetForView() {
+  const card = getCardTarget(state.marker.cardId);
+  const cardAnchor = card.anchor || {};
+  const z = markerZFromCardSize(cardAnchor.zOffset ?? 0.10);
+  const position = screenPointToWorldAtZ(state.marker.centerX, state.marker.centerY, z);
   return {
     x: position.x,
     y: position.y,
     z,
-    angle,
-    tiltX,
-    tiltY
+    scale: FIXED_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1),
+    angle: state.marker.angle,
+    tiltX: state.marker.tiltX,
+    tiltY: state.marker.tiltY
   };
 }
 
-function markerZFromProjectedSize(projectedSize) {
-  if (!camera) return 0.10;
-  const size = Math.max(0.001, projectedSize || MARKER_REFERENCE_SIZE);
-  const distance = MARKER_REFERENCE_DISTANCE * (MARKER_REFERENCE_SIZE / size);
+function markerZFromCardSize(defaultZ = 0.10) {
+  if (!camera) return defaultZ;
+  const size = Math.max(0.001, state.marker.size || MARKER_REFERENCE_SIZE);
+  const distance = clamp(
+    MARKER_REFERENCE_DISTANCE * (MARKER_REFERENCE_SIZE / size),
+    MARKER_MIN_DISTANCE,
+    MARKER_MAX_DISTANCE
+  );
   return camera.position.z - distance;
 }
 
-function projectStagePointToWorldAtZ(x, y, z) {
+function screenPointToWorldAtZ(x, y, z) {
   if (!camera) return { x: 0, y: 0 };
-  const view = getCameraPlaneSizeAtZ(z);
+  const view = getViewWorldSize(z);
   return {
     x: (x - 0.5) * view.width,
     y: (0.5 - y) * view.height
   };
 }
 
-function getCameraPlaneSizeAtZ(z = 0) {
+function getViewWorldSize(z = 0) {
   if (!camera) return { width: 5.8, height: 3.0 };
   const distance = Math.max(0.1, camera.position.z - z);
   const height = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * distance;
@@ -2022,45 +2015,37 @@ function getCameraPlaneSizeAtZ(z = 0) {
   };
 }
 
-function updateMarkerRootAnchor() {
+function updateAnchor(portrait) {
   const visible = isMarkerVisible();
   if (!visible) {
     anchor.confidence = 0;
     return;
   }
-  if (!state.marker.anchorPose) return;
-  Object.assign(anchor, state.marker.anchorPose);
+  const target = markerTargetForView();
+  Object.assign(anchor, target);
   anchor.confidence = 1;
-}
-
-function applyMarkerRootTransform() {
-  if (!markerRoot || !synthGroup) return;
-  markerRoot.position.set(anchor.x, anchor.y, anchor.z);
-  markerRoot.rotation.x = anchor.tiltY * 0.42;
-  markerRoot.rotation.y = anchor.tiltX * 0.42;
-  markerRoot.rotation.z = anchor.angle;
-
-  const card = getCardTarget(state.marker.cardId);
-  const cardAnchor = card.anchor || {};
-  synthGroup.position.set(0, cardAnchor.yOffset ?? 0, cardAnchor.zOffset ?? 0.10);
-  synthGroup.rotation.set(-0.35, 0, 0);
-  synthGroup.scale.setScalar(LOCAL_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1));
 }
 
 function render(time = 0) {
   enforceMarkerTimeout(time || performance.now());
-  updateMarkerRootAnchor();
+  const stage = $("#ar-stage");
+  const rect = stage?.getBoundingClientRect();
+  const portrait = (rect?.height || window.innerHeight) >= (rect?.width || window.innerWidth);
+  updateAnchor(portrait);
 
-  if (markerRoot && synthGroup) {
+  if (synthGroup) {
     const visible = isMarkerVisible();
-    markerRoot.visible = visible;
     synthGroup.visible = visible;
     if (!visible) {
       renderer.render(scene, camera);
       requestAnimationFrame(render);
       return;
     }
-    applyMarkerRootTransform();
+    synthGroup.position.set(anchor.x, anchor.y, anchor.z);
+    synthGroup.scale.setScalar(anchor.scale);
+    synthGroup.rotation.x = -0.35 + anchor.tiltY * 0.42;
+    synthGroup.rotation.y = anchor.tiltX * 0.42;
+    synthGroup.rotation.z = anchor.angle;
   }
 
   renderer.render(scene, camera);

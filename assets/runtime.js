@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getCardTarget, markerResourceMap } from "./cards.js?v=20260527-entry-gate-v1";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-drum-card-v1";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260527-entry-gate-v1";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-drum-card-v1";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -32,6 +32,7 @@ const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
 const REQUIRED_CARD_ID = "hechengqi";
+const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
@@ -79,8 +80,16 @@ const GUITE222_GUITAR_PARAMS = {
 };
 const GUITE222_BASE_FREQ = 82.41;
 const GUITE222_BASE_MIDI = 48;
+const DRUM_CONTROLS = {
+  tone: 0.62,
+  decay: 0.52,
+  drive: 0.25,
+  space: 0.35,
+  level: 0.82
+};
 
 const synthMarkerBinding = markerResourceMap.hechengqi;
+const drumMarkerBinding = markerResourceMap.drum;
 window.markerResourceMap = markerResourceMap;
 window.activeInstrument = null;
 
@@ -133,7 +142,10 @@ let scene = null;
 let camera = null;
 let renderer = null;
 let synthGroup = null;
+let drumGroup = null;
+let activeModelGroup = null;
 let screenMaterial = null;
+let drumScreenMaterial = null;
 let raycaster = null;
 let pointer = null;
 let anchor = createEmptyAnchor();
@@ -162,6 +174,8 @@ let guite222GuitarReady = null;
 let guite222GuitarFailed = false;
 let activeVoices = new Map();
 let canvasBound = false;
+let drumControls = { ...DRUM_CONTROLS };
+let drumControlMeshes = new Map();
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -242,6 +256,12 @@ function setStageWaiting(waiting) {
 
 function setSynthActive(active) {
   $("#ar-stage")?.classList.toggle("mode-play", active);
+}
+
+function setActiveInstrumentModel(instrumentType) {
+  activeModelGroup = instrumentType === "drum-machine" ? drumGroup : synthGroup;
+  if (synthGroup) synthGroup.visible = false;
+  if (drumGroup) drumGroup.visible = false;
 }
 
 function resetUserTransform() {
@@ -487,6 +507,12 @@ async function initSynthesizer() {
   return true;
 }
 
+async function initDrumMachine() {
+  unlockAudio();
+  updateDrumDisplay("QR DRUM", "128 BPM", "READY");
+  return true;
+}
+
 async function playSynthesizerNote(options = {}) {
   if (!window.activeInstrument) return null;
   unlockAudio();
@@ -498,24 +524,34 @@ async function playSynthesizerNote(options = {}) {
   return voice;
 }
 
-function activateSynthesizerMarker(details = {}) {
+async function playDrumMachinePad(options = {}) {
+  unlockAudio();
+  const id = options.pad || options.id || "kick";
+  playDrum(id, clamp(Number(options.velocity ?? 0.88), 0.05, 1));
+  return null;
+}
+
+function activateInstrumentMarker(details = {}) {
   const config = details.markerResource || synthMarkerBinding;
   const alreadyActive = window.activeInstrument?.cardId === config.cardId;
   if (window.activeInstrument?.cardId !== config.cardId) {
+    const isDrum = config.instrumentType === "drum-machine";
     window.activeInstrument = {
       ...config,
-      initAudioEngine: initSynthesizer,
-      play: playSynthesizerNote
+      initAudioEngine: isDrum ? initDrumMachine : initSynthesizer,
+      play: isDrum ? playDrumMachinePad : playSynthesizerNote
     };
     document.body.classList.add("synthesizer-active");
   }
-  if (!alreadyActive) initSynthesizer();
+  setActiveInstrumentModel(config.instrumentType);
+  if (!alreadyActive) window.activeInstrument.initAudioEngine?.();
 }
 
-function deactivateSynthesizerMarker() {
-  if (window.activeInstrument?.cardId === synthMarkerBinding.cardId) {
+function deactivateInstrumentMarker() {
+  if (window.activeInstrument) {
     window.activeInstrument = null;
   }
+  setActiveInstrumentModel(null);
   document.body.classList.remove("synthesizer-active");
 }
 
@@ -916,20 +952,24 @@ function playDrum(id, velocity = 0.85) {
   if (ctx.state === "suspended") ctx.resume().catch(() => {});
   const now = ctx.currentTime;
   const out = ctx.createGain();
-  out.gain.value = state.faders.VOL * velocity;
+  const toneFactor = lerp(0.62, 1.38, drumControls.tone);
+  const decayFactor = lerp(0.62, 1.85, drumControls.decay);
+  const driveFactor = lerp(0.9, 1.38, drumControls.drive);
+  out.gain.value = state.faders.VOL * drumControls.level * velocity * driveFactor;
   out.connect(masterGain);
   out.connect(fxSend);
+  if (fxSend) fxSend.gain.setTargetAtTime((state.faders.FX * 0.22) + (drumControls.space * 0.24), now, 0.015);
 
   if (id === "kick") {
     const osc = ctx.createOscillator();
     osc.type = "sine";
-    osc.frequency.setValueAtTime(135, now);
-    osc.frequency.exponentialRampToValueAtTime(42, now + 0.18);
+    osc.frequency.setValueAtTime(135 * toneFactor, now);
+    osc.frequency.exponentialRampToValueAtTime(42 * toneFactor, now + 0.18 * decayFactor);
     out.gain.setValueAtTime(velocity, now);
-    out.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+    out.gain.exponentialRampToValueAtTime(0.0001, now + 0.28 * decayFactor);
     osc.connect(out);
     osc.start(now);
-    osc.stop(now + 0.3);
+    osc.stop(now + 0.3 * decayFactor);
     return;
   }
 
@@ -937,10 +977,10 @@ function playDrum(id, velocity = 0.85) {
     const body = ctx.createOscillator();
     const bodyGain = ctx.createGain();
     body.type = "triangle";
-    body.frequency.setValueAtTime(190, now);
-    body.frequency.exponentialRampToValueAtTime(118, now + 0.12);
+    body.frequency.setValueAtTime(190 * toneFactor, now);
+    body.frequency.exponentialRampToValueAtTime(118 * toneFactor, now + 0.12 * decayFactor);
     bodyGain.gain.setValueAtTime(velocity * 0.34, now);
-    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16 * decayFactor);
     body.connect(bodyGain);
     bodyGain.connect(out);
     body.start(now);
@@ -950,18 +990,18 @@ function playDrum(id, velocity = 0.85) {
   if (id === "tom") {
     const body = ctx.createOscillator();
     body.type = "sine";
-    body.frequency.setValueAtTime(210, now);
-    body.frequency.exponentialRampToValueAtTime(86, now + 0.26);
+    body.frequency.setValueAtTime(210 * toneFactor, now);
+    body.frequency.exponentialRampToValueAtTime(86 * toneFactor, now + 0.26 * decayFactor);
     out.gain.setValueAtTime(velocity * 0.72, now);
-    out.gain.exponentialRampToValueAtTime(0.0001, now + 0.38);
+    out.gain.exponentialRampToValueAtTime(0.0001, now + 0.38 * decayFactor);
     body.connect(out);
     body.start(now);
-    body.stop(now + 0.4);
+    body.stop(now + 0.4 * decayFactor);
     return;
   }
 
   const noise = ctx.createBufferSource();
-  noise.buffer = makeNoiseBuffer(ctx, id === "crash" || id === "ride" ? 1.1 : 0.32);
+  noise.buffer = makeNoiseBuffer(ctx, (id === "crash" || id === "ride" ? 1.1 : 0.32) * decayFactor);
   const filter = ctx.createBiquadFilter();
   filter.type = id === "tom" ? "bandpass" : "highpass";
   filter.frequency.value = {
@@ -972,14 +1012,14 @@ function playDrum(id, velocity = 0.85) {
     hatOpen: 4300,
     crash: 3100,
     ride: 3800
-  }[id] || 1600;
+  }[id] * toneFactor || 1600 * toneFactor;
   filter.Q.value = id === "tom" ? 5 : 0.8 + state.reso * 4;
   out.gain.setValueAtTime(velocity * (id === "hat" ? 0.34 : 0.62), now);
-  out.gain.exponentialRampToValueAtTime(0.0001, now + (id === "crash" || id === "ride" ? 0.9 : 0.2));
+  out.gain.exponentialRampToValueAtTime(0.0001, now + (id === "crash" || id === "ride" ? 0.9 : 0.2) * decayFactor);
   noise.connect(filter);
   filter.connect(out);
   noise.start(now);
-  noise.stop(now + 1.0);
+  noise.stop(now + 1.0 * decayFactor);
 }
 
 function playKey(midi, object, pointerId = 0) {
@@ -1098,6 +1138,15 @@ function flashKey(key, active) {
   key.material.emissiveIntensity = active ? 0.45 : 0.05;
 }
 
+function flashDrumPad(pad, active) {
+  if (!pad?.userData?.baseColor) return;
+  const data = pad.userData;
+  pad.position.z = active ? data.baseZ - 0.018 : data.baseZ;
+  pad.material.color.setHex(active ? data.activeColor : data.baseColor);
+  pad.material.emissive.setHex(active ? data.activeColor : 0x000000);
+  pad.material.emissiveIntensity = active ? 0.62 : 0.05;
+}
+
 function createScene() {
   const canvas = $("#synth-canvas") || $("#guitar-canvas");
   scene = new THREE.Scene();
@@ -1122,6 +1171,12 @@ function createScene() {
   synthGroup.visible = false;
   scene.add(synthGroup);
   buildSynthModel();
+  drumGroup = new THREE.Group();
+  drumGroup.name = "QR_Drum_Machine";
+  drumGroup.visible = false;
+  scene.add(drumGroup);
+  buildDrumMachineModel();
+  activeModelGroup = synthGroup;
   resizeCanvas();
   bindCanvasEvents(canvas);
   requestAnimationFrame(render);
@@ -1169,6 +1224,164 @@ function buildSynthModel() {
   selectPreset("SYNTH");
   selectWave("SAW");
   updateDisplay("SYNTH", "SAW", "READY");
+}
+
+function buildDrumMachineModel() {
+  drumControlMeshes = new Map();
+  const baseMat = makeMaterial({ color: 0x101821, roughness: 0.54, metalness: 0.38 });
+  const sideMat = makeMaterial({ color: 0x05080d, roughness: 0.62, metalness: 0.30 });
+  const panelMat = makeMaterial({ color: 0x17202a, roughness: 0.46, metalness: 0.42 });
+
+  const base = new THREE.Mesh(new THREE.BoxGeometry(5.65, 2.20, 0.32), baseMat);
+  base.position.set(0, -0.08, -0.10);
+  drumGroup.add(base);
+
+  const frontLip = new THREE.Mesh(new THREE.BoxGeometry(5.70, 0.18, 0.28), sideMat);
+  frontLip.position.set(0, -1.10, 0.04);
+  drumGroup.add(frontLip);
+
+  const panel = new THREE.Group();
+  panel.name = "drum_machine_panel";
+  panel.position.set(0, 0.08, 0.14);
+  panel.rotation.x = -0.15;
+  drumGroup.add(panel);
+
+  const panelPlate = new THREE.Mesh(new THREE.BoxGeometry(5.34, 1.78, 0.18), panelMat);
+  panelPlate.position.set(0, 0, 0);
+  panel.add(panelPlate);
+
+  addLabel(panel, "QR DRUM MACHINE", -1.75, 0.72, 0.16, 1.55, 0.15, { fontSize: 22, color: "#dbfff5" });
+  const pads = [
+    ["kick", "Kick", -1.92, 0.38, 0xff6b3a],
+    ["snare", "Snare", -1.20, 0.38, 0x3aa6ff],
+    ["clap", "Clap", -0.48, 0.38, 0xffdf6e],
+    ["rim", "Rim", 0.24, 0.38, 0xb26bff],
+    ["hat", "Hi-Hat", -1.92, -0.16, 0x63e6be],
+    ["hatOpen", "Open Hat", -1.20, -0.16, 0x63e6be],
+    ["tom", "Tom", -0.48, -0.16, 0xffa23a],
+    ["crash", "Crash", 0.24, -0.16, 0xf45cff]
+  ];
+  pads.forEach(([id, label, x, y, color]) => createDrumPad(panel, id, label, x, y, color));
+
+  createDrumButton(panel, "PLAY", 0.95, -0.62, 0x32c7ff, () => playDrumPattern());
+  createDrumButton(panel, "STOP", 1.55, -0.62, 0xffdf6e, () => stopDrumPattern());
+  createDrumButton(panel, "REC", 2.15, -0.62, 0xff5a66, () => updateDrumDisplay("QR DRUM", "REC", "READY"));
+
+  const screen = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.44, 0.08), makeMaterial({ color: 0x051311, emissive: 0x0b4639, roughness: 0.22 }));
+  screen.position.set(2.05, 0.48, 0.17);
+  panel.add(screen);
+  drumScreenMaterial = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+  const display = new THREE.Mesh(new THREE.PlaneGeometry(1.02, 0.32), drumScreenMaterial);
+  display.position.set(2.05, 0.48, 0.23);
+  panel.add(display);
+
+  const knobs = [
+    ["tone", "TONE", 1.28, 0.06, 0x3aa6ff],
+    ["decay", "DECAY", 1.78, 0.06, 0xffdf6e],
+    ["drive", "DRIVE", 2.28, 0.06, 0xffa23a],
+    ["space", "SPACE", 1.54, -0.32, 0xb26bff],
+    ["level", "LEVEL", 2.06, -0.32, 0x63e6be]
+  ];
+  knobs.forEach(([id, label, x, y, color]) => createDrumKnob(panel, id, label, x, y, color));
+  updateDrumDisplay("QR DRUM", "128 BPM", "READY");
+}
+
+function createDrumPad(parent, id, label, x, y, color) {
+  const pad = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.40, 0.10), makeMaterial({ color: 0x202b36, emissive: 0x000000, roughness: 0.40, metalness: 0.18 }));
+  pad.position.set(x, y, 0.16);
+  pad.userData.baseColor = 0x202b36;
+  pad.userData.activeColor = color;
+  pad.userData.baseZ = pad.position.z;
+  parent.add(pad);
+  addInteractive(pad, { kind: "drumPad", id });
+  addLabel(parent, label, x, y, 0.23, 0.52, 0.12, { fontSize: 22, color: "#f6fff8" });
+  return pad;
+}
+
+function createDrumButton(parent, label, x, y, color, action) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.09), makeMaterial({ color: 0x273241, emissive: color, roughness: 0.36, metalness: 0.25 }));
+  mesh.position.set(x, y, 0.18);
+  mesh.userData.baseColor = 0x273241;
+  mesh.userData.activeColor = color;
+  parent.add(mesh);
+  addInteractive(mesh, { kind: "drumButton", label, action });
+  addLabel(parent, label, x, y, 0.25, 0.38, 0.11, { fontSize: 22, color: "#ffffff" });
+  return mesh;
+}
+
+function createDrumKnob(parent, id, label, x, y, color) {
+  const value = drumControls[id] ?? 0.5;
+  const group = new THREE.Group();
+  group.position.set(x, y, 0.18);
+  parent.add(group);
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.08, 32), makeMaterial({ color: 0x0a0d12, emissive: color, roughness: 0.34, metalness: 0.45 }));
+  base.rotation.x = Math.PI / 2;
+  group.add(base);
+  const indicator = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.13, 0.024), makeMaterial({ color, emissive: color }));
+  indicator.position.set(0, 0.05, 0.06);
+  group.add(indicator);
+  const hit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.04), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+  hit.position.set(x, y, 0.26);
+  parent.add(hit);
+  addInteractive(hit, { kind: "drumKnob", id });
+  addLabel(parent, label, x, y - 0.26, 0.22, 0.36, 0.10, { fontSize: 16, color: "#f6fff8" });
+  const knob = { group, indicator, value, color };
+  drumControlMeshes.set(id, knob);
+  updateDrumKnobVisual(knob);
+  return knob;
+}
+
+function updateDrumKnobVisual(knob) {
+  const angle = lerp(-2.10, 2.10, knob.value);
+  knob.indicator.rotation.z = -angle;
+  knob.group.children[0].material.emissiveIntensity = 0.16 + knob.value * 0.72;
+}
+
+function updateDrumDisplay(line1, line2, line3) {
+  if (!drumScreenMaterial) return;
+  const texture = labelTexture([line1, line2, line3].filter(Boolean), {
+    width: 512,
+    height: 192,
+    background: "#04110f",
+    color: "#63e6be",
+    fontSize: 34
+  });
+  if (drumScreenMaterial.map) drumScreenMaterial.map.dispose();
+  drumScreenMaterial.map = texture;
+  drumScreenMaterial.needsUpdate = true;
+}
+
+function playDrumPattern() {
+  const pattern = [
+    ["kick", 0],
+    ["hat", 120],
+    ["snare", 240],
+    ["hat", 360],
+    ["kick", 480],
+    ["hatOpen", 600],
+    ["snare", 720],
+    ["crash", 840]
+  ];
+  pattern.forEach(([id, delay]) => {
+    window.setTimeout(() => {
+      if (window.activeInstrument?.instrumentType !== "drum-machine") return;
+      playDrum(id, 0.76);
+      updateDrumDisplay("QR DRUM", id.toUpperCase(), "PLAY");
+    }, delay);
+  });
+}
+
+function stopDrumPattern() {
+  updateDrumDisplay("QR DRUM", "STOP", "READY");
+}
+
+function isDescendantOf(object, parent) {
+  let current = object;
+  while (current) {
+    if (current === parent) return true;
+    current = current.parent;
+  }
+  return false;
 }
 
 function createButton(parent, label, x, y, color, interaction, size = { w: 0.58, h: 0.22 }) {
@@ -1441,6 +1654,19 @@ function updateDisplayForKey(midi) {
 function handleControl(interaction, hit, event) {
   if (!interaction) return;
   unlockAudio();
+  if (interaction.kind === "drumPad") {
+    flashDrumPad(hit.object, true);
+    playDrum(interaction.id, 0.88);
+    updateDrumDisplay("QR DRUM", interaction.id.toUpperCase(), "HIT");
+    window.setTimeout(() => flashDrumPad(hit.object, false), 150);
+    return;
+  }
+  if (interaction.kind === "drumButton") {
+    flashDrumPad(hit.object, true);
+    interaction.action?.();
+    window.setTimeout(() => flashDrumPad(hit.object, false), 150);
+    return;
+  }
   if (interaction.kind === "preset") selectPreset(interaction.id);
   if (interaction.kind === "wave") selectWave(interaction.id);
   if (interaction.kind === "performance") togglePerformance(interaction.id);
@@ -1450,6 +1676,15 @@ function handleControl(interaction, hit, event) {
   }
   if (interaction.kind === "key") playKey(interaction.midi, hit.object, event.pointerId);
   if (interaction.kind === "fader" || interaction.kind === "knob" || interaction.kind === "strip") {
+    dragState = {
+      kind: interaction.kind,
+      id: interaction.id,
+      lastX: event.clientX,
+      lastY: event.clientY
+    };
+    updateDragControl(event);
+  }
+  if (interaction.kind === "drumKnob") {
     dragState = {
       kind: interaction.kind,
       id: interaction.id,
@@ -1498,6 +1733,15 @@ function updateDragControl(event) {
     if (dragState.id === "MOD") state.mod = strip.value;
     updateStripVisual(dragState.id);
     updateDisplay(state.currentPreset, state.currentWave, `${dragState.id} ${Math.round(strip.value * 100)}`);
+  }
+
+  if (dragState.kind === "drumKnob") {
+    const knob = drumControlMeshes.get(dragState.id);
+    if (!knob) return;
+    knob.value = clamp(knob.value + delta, 0, 1);
+    drumControls[dragState.id] = knob.value;
+    updateDrumKnobVisual(knob);
+    updateDrumDisplay("QR DRUM", dragState.id.toUpperCase(), `${Math.round(knob.value * 100)}`);
   }
 }
 
@@ -1550,7 +1794,7 @@ function bindCanvasEvents(canvas) {
     pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObjects(interactives, false);
-    return hits.find((hit) => hit.object.visible !== false);
+    return hits.find((hit) => hit.object.visible !== false && isDescendantOf(hit.object, activeModelGroup));
   };
 
   canvas.addEventListener("pointerdown", (event) => {
@@ -1563,7 +1807,7 @@ function bindCanvasEvents(canvas) {
     }
     if (!isMarkerVisible()) {
       unlockAudio();
-      setPrompt("请先对准 SYNTH 召唤卡");
+      setPrompt("请先对准乐器识别卡");
       return;
     }
     const hit = getHit(event);
@@ -1640,7 +1884,7 @@ async function startCameraMode() {
     await video.play();
     $("#ar-stage")?.classList.add("camera-active");
     setStageWaiting(false);
-    setPrompt("请将 SYNTH 召唤卡放入画面中");
+    setPrompt(PROMPT_FIND_CARD);
     startMarkerTracking();
     if (button) button.textContent = "退出相机";
   } catch (err) {
@@ -1668,7 +1912,9 @@ function stopCameraMode() {
   stopMarkerTracking();
   state.marker.locked = false;
   anchor.confidence = 0;
+  deactivateInstrumentMarker();
   if (synthGroup) synthGroup.visible = false;
+  if (drumGroup) drumGroup.visible = false;
   setSynthActive(false);
   setStageWaiting(true);
   setPrompt("请允许相机");
@@ -1721,11 +1967,11 @@ function scanTextCardMarker() {
   const video = $("#camera-feed");
   const scanner = getScanner();
   if (!video || !scanner) {
-    hideMarker("请将 SYNTH 识别卡放入画面中");
+    hideMarker(PROMPT_FIND_CARD);
     return false;
   }
   if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-    hideMarker("请将 SYNTH 识别卡放入画面中");
+    hideMarker(PROMPT_FIND_CARD);
     return false;
   }
 
@@ -1739,21 +1985,46 @@ function scanTextCardMarker() {
   const imageData = scanner.ctx.getImageData(0, 0, width, height);
   const frame = { imageData, width, height };
   const pose = updateMarkerFromImageTracker(scale, frame)
-    || detectCardPoseFromFrame(getCardTarget(REQUIRED_CARD_ID), frame);
-  const cardTarget = getCardTarget(REQUIRED_CARD_ID);
+    || detectAnyCardPoseFromFrame(frame);
+  const cardId = pose?.cardId || REQUIRED_CARD_ID;
+  const cardTarget = getCardTarget(cardId);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
     payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
-    cardId: REQUIRED_CARD_ID,
+    cardId,
     instrumentType: pose.resolvedInstrument || cardTarget.resolvedInstrument || cardTarget.markerResource?.instrumentType || cardTarget.instrumentId || "synthesizer",
-    recognizedText: pose.recognizedText || cardTarget.recognizedText || "合成器",
+    recognizedText: pose.recognizedText || cardTarget.recognizedText || cardTarget.title || "",
     markerResource: cardTarget.markerResource || synthMarkerBinding,
     source: pose.source || "text-card",
     immediate: true
   }));
   if (!tracked) {
-    hideMarker("请将 SYNTH 识别卡放入画面中");
+    hideMarker(PROMPT_FIND_CARD);
   }
   return tracked;
+}
+
+function detectAnyCardPoseFromFrame(frame) {
+  let best = null;
+  for (const target of getAllCardTargets()) {
+    const pose = detectCardPoseFromFrame(target, frame);
+    if (!pose) continue;
+    const score = (pose.wholeCardConfidence || 0) * 0.52
+      + (pose.textConfidence || 0) * 0.18
+      + (pose.glyphConfidence || 0) * 0.30;
+    if (!best || score > best.score) {
+      best = {
+        score,
+        pose: {
+          ...pose,
+          cardId: target.id,
+          resolvedInstrument: target.resolvedInstrument || target.instrumentId,
+          recognizedText: target.recognizedText || target.title,
+          decodedPayload: target.encodedPayload || pose.decodedPayload
+        }
+      };
+    }
+  }
+  return best?.pose || null;
 }
 
 function mapVideoPointToStage(point, scanScale) {
@@ -1930,11 +2201,11 @@ function updateMarkerFromPose(pose, scanScale, details) {
     tiltY: clamp((bottomW - topW) / Math.max(topW + bottomW, 1), -0.38, 0.38)
   };
   lastCardPoseScan = pose;
-  synthGroup.visible = true;
+  activateInstrumentMarker(details);
+  if (activeModelGroup) activeModelGroup.visible = true;
   setSynthActive(true);
-  activateSynthesizerMarker(details);
   restoreOutputForMarkerFound();
-  setPrompt("AR Mini Synth Workstation");
+  setPrompt(details.instrumentType === "drum-machine" ? "QR Drum Machine" : "AR Mini Synth Workstation");
   return true;
 }
 
@@ -1948,7 +2219,7 @@ function updateMarkerLost() {
 
 function enforceMarkerTimeout(now = performance.now()) {
   if (!cameraStream && state.marker.locked) {
-    hideMarker("请将 SYNTH 识别卡放入画面中");
+    hideMarker(PROMPT_FIND_CARD);
     return false;
   }
   return state.marker.locked;
@@ -1963,8 +2234,9 @@ function hideMarker(promptText) {
   lastCardPoseScan = null;
   cancelActiveControlPointers();
   muteOutputForMarkerLoss();
-  deactivateSynthesizerMarker();
+  deactivateInstrumentMarker();
   if (synthGroup) synthGroup.visible = false;
+  if (drumGroup) drumGroup.visible = false;
   setSynthActive(false);
   if (promptText) setPrompt(promptText);
 }
@@ -2033,19 +2305,20 @@ function render(time = 0) {
   const portrait = (rect?.height || window.innerHeight) >= (rect?.width || window.innerWidth);
   updateAnchor(portrait);
 
-  if (synthGroup) {
+  if (activeModelGroup) {
     const visible = isMarkerVisible();
-    synthGroup.visible = visible;
+    if (synthGroup) synthGroup.visible = visible && activeModelGroup === synthGroup;
+    if (drumGroup) drumGroup.visible = visible && activeModelGroup === drumGroup;
     if (!visible) {
       renderer.render(scene, camera);
       requestAnimationFrame(render);
       return;
     }
-    synthGroup.position.set(anchor.x, anchor.y, anchor.z);
-    synthGroup.scale.setScalar(anchor.scale);
-    synthGroup.rotation.x = -0.35 + anchor.tiltY * 0.42;
-    synthGroup.rotation.y = anchor.tiltX * 0.42;
-    synthGroup.rotation.z = anchor.angle;
+    activeModelGroup.position.set(anchor.x, anchor.y, anchor.z);
+    activeModelGroup.scale.setScalar(anchor.scale);
+    activeModelGroup.rotation.x = -0.35 + anchor.tiltY * 0.42;
+    activeModelGroup.rotation.y = anchor.tiltX * 0.42;
+    activeModelGroup.rotation.z = anchor.angle;
   }
 
   renderer.render(scene, camera);
@@ -2071,7 +2344,7 @@ function bindEvents() {
   $("#reset-view")?.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     resetUserTransform();
-    hideMarker("视角已重置，请重新对准 SYNTH 识别卡");
+    hideMarker("视角已重置，请重新对准乐器识别卡");
     updateDisplay(state.currentPreset, state.currentWave, "VIEW RESET");
   });
   document.addEventListener("WeixinJSBridgeReady", () => {

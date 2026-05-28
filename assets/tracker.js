@@ -13,11 +13,14 @@ export function trackCardPoseFromFrame(previousPose, cardTarget, frame = null) {
   if (!refined) return null;
   const textConfidence = sampleTextSignature(refined, cardTarget, frame);
   const dataConfidence = sampleDataSignature(refined, cardTarget, frame);
+  const glyphConfidence = samplePoseGlyphSignature(refined, cardTarget, frame);
+  refined.glyphConfidence = glyphConfidence;
   if (!isRecognizedSynthCard(refined, textConfidence, dataConfidence, cardTarget)) return null;
   return {
     ...refined,
     textConfidence,
     dataConfidence,
+    glyphConfidence,
     decodedPayload: cardTarget?.encodedPayload || ""
   };
 }
@@ -40,11 +43,14 @@ export function detectCardPoseFromFrame(cardTarget, frame = null) {
   const refined = refinePoseFromMarkers(base, corners, markerRatio, frame, cardTarget, "text-card");
   const textConfidence = sampleTextSignature(refined, cardTarget, frame);
   const dataConfidence = sampleDataSignature(refined, cardTarget, frame);
+  const glyphConfidence = samplePoseGlyphSignature(refined, cardTarget, frame);
+  refined.glyphConfidence = glyphConfidence;
   if (!isRecognizedSynthCard(refined, textConfidence, dataConfidence, cardTarget)) return null;
   return {
     ...refined,
     textConfidence,
     dataConfidence,
+    glyphConfidence,
     decodedPayload: cardTarget?.encodedPayload || ""
   };
 }
@@ -73,6 +79,7 @@ function detectHiroTextMarkerPose(cardTarget, frame) {
     const base = makeGeometry(cardCenter, point(1, 0), point(0, 1), halfW, halfH, cardTarget);
     const textConfidence = sampleTextSignature(base, cardTarget, frame);
     const dataConfidence = 1;
+    const glyphConfidence = sampleGlyphSignatureFromBounds(frame, candidate.bounds, cardTarget?.glyphSignature);
     const wholeCardConfidence = clamp(
       whiteRatio * 0.32 + surroundDarkRatio * 0.42 + Math.min(1, textDarkRatio / 0.22) * 0.38,
       0,
@@ -85,6 +92,7 @@ function detectHiroTextMarkerPose(cardTarget, frame) {
       wholeCardConfidence,
       textConfidence,
       dataConfidence,
+      glyphConfidence,
       usesWholeCardTarget: true,
       source: "hiro-text-marker",
       recognizedText: cardTarget?.recognizedText || cardTarget?.markerText?.[0] || "",
@@ -108,6 +116,8 @@ function isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget)
   const cornerMin = policy.minCornerConfidence ?? 0.44;
   const hasText = textConfidence >= textMin;
   const hasData = dataConfidence >= dataMin;
+  const glyphMin = cardTarget?.glyphSignature?.minConfidence;
+  if (glyphMin != null && (pose.glyphConfidence ?? 0) < glyphMin) return false;
   const combined = markerConfidence * 0.48 + textConfidence * 0.34 + dataConfidence * 0.18;
   if (markerConfidence >= 0.96 && textConfidence >= textMin * 0.72) return true;
   if (markerConfidence >= cornerMin && (hasText || hasData) && combined >= combinedMin) return true;
@@ -483,6 +493,67 @@ function sampleRectRingDarkRatio(frame, bounds, expandRatio = 0.32) {
   const innerArea = Math.max(1, bounds.w * bounds.h);
   const ringArea = Math.max(1, outerArea - innerArea);
   return clamp((outerRatio * outerArea - innerRatio * innerArea) / ringArea, 0, 1);
+}
+
+function sampleGlyphSignatureFromBounds(frame, bounds, signature) {
+  const rows = signature?.rows || [];
+  if (!rows.length || !bounds || !frame?.imageData?.data) return 1;
+  const inset = signature.inset ?? 0.07;
+  const cols = rows[0]?.length || 0;
+  if (!cols) return 1;
+  const area = insetBounds(bounds, inset);
+  let total = 0;
+  let matched = 0;
+  for (let row = 0; row < rows.length; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const cell = {
+        x: area.x + area.w * col / cols,
+        y: area.y + area.h * row / rows.length,
+        w: area.w / cols,
+        h: area.h / rows.length
+      };
+      const ratio = sampleRectDarkRatio(frame, cell, signature.threshold ?? 128);
+      const bit = ratio >= (signature.cellDarkRatio ?? 0.12) ? "1" : "0";
+      if (bit === rows[row][col]) matched += 1;
+      total += 1;
+    }
+  }
+  return total ? matched / total : 0;
+}
+
+function samplePoseGlyphSignature(pose, cardTarget, frame) {
+  const signature = cardTarget?.glyphSignature;
+  const rows = signature?.rows || [];
+  const panel = cardTarget?.textPanel;
+  if (!rows.length || !panel || !pose || !frame?.imageData?.data) return 1;
+  const inset = signature.inset ?? 0.07;
+  const cols = rows[0]?.length || 0;
+  if (!cols) return 1;
+  const panelRegion = {
+    x: panel.x + panel.w * inset,
+    y: panel.y + panel.h * inset,
+    w: panel.w * (1 - inset * 2),
+    h: panel.h * (1 - inset * 2)
+  };
+  let total = 0;
+  let matched = 0;
+  for (let row = 0; row < rows.length; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const region = {
+        x: panelRegion.x + panelRegion.w * col / cols,
+        y: panelRegion.y + panelRegion.h * row / rows.length,
+        w: panelRegion.w / cols,
+        h: panelRegion.h / rows.length,
+        cols: 3,
+        rows: 3
+      };
+      const ratio = samplePoseRegionDarkRatio(pose, frame, region);
+      const bit = ratio >= (signature.cellDarkRatio ?? 0.12) ? "1" : "0";
+      if (bit === rows[row][col]) matched += 1;
+      total += 1;
+    }
+  }
+  return total ? matched / total : 0;
 }
 
 function chooseExtremeCorners(candidates) {

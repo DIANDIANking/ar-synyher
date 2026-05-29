@@ -2748,27 +2748,16 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         var nx = ((pointer.x - cl) / cw);
         var ny = ((pointer.y - ct) / ch);
 
-        // 调试：在页面上显示触摸坐标和命中的交互物体
-        if (window._synthDebug) {
-            var debugEl = document.getElementById('touch-debug');
-            if (!debugEl) {
-                debugEl = document.createElement('div');
-                debugEl.id = 'touch-debug';
-                debugEl.style.cssText = 'position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.8);color:#0f0;font-size:12px;padding:8px;z-index:9999;max-width:90vw;word-break:break-all;pointer-events:none;';
-                document.body.appendChild(debugEl);
-            }
-        }
+        // AR.js 相机为镜像画面，触摸 X 轴需翻转，Y 轴保持标准
+        var mx = 1 - nx * 2;
+        var my = -(ny * 2 - 1);
 
-        // 暂时强制调试模式，找出正确的NDC映射方案
-        window._synthDebug = true;
-        var tryVariants = [
-            { name: '标准',  mx: nx*2-1,   my: -(ny*2-1) },
-            { name: 'X翻转', mx: 1-nx*2,   my: -(ny*2-1) },
-            { name: 'Y翻转', mx: nx*2-1,   my: ny*2-1 },
-            { name: 'XY翻转',mx: 1-nx*2,   my: ny*2-1 },
-        ];
+        var ndc3 = new THREE.Vector3(mx, my, 0.5);
+        ndc3.unproject(camera);
+        var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+        var dir = ndc3.clone().sub(origin).normalize();
+        this.raycaster.set(origin, dir);
 
-        // 递归收集 this.group 下全部交互 mesh（只做一次）
         var all = [];
         function walk(obj) {
             if (obj.userData && obj.userData.interaction) all.push(obj);
@@ -2777,49 +2766,13 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         }
         if (this.group) walk(this.group);
 
-        // 用四种方案都测一遍，全部结果写入调试面板
-        var debugEl = document.getElementById('touch-debug');
-        if (!debugEl) {
-            debugEl = document.createElement('div');
-            debugEl.id = 'touch-debug';
-            debugEl.style.cssText = 'position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.85);color:#0f0;font-size:11px;padding:6px;z-index:9999;max-width:90vw;word-break:break-all;pointer-events:none;font-family:monospace;line-height:1.3;';
-            document.body.appendChild(debugEl);
+        var hits = this.raycaster.intersectObjects(all, false);
+        for (var i = 0; i < hits.length; i++) {
+            var obj = hits[i].object;
+            var inter = obj.userData && obj.userData.interaction;
+            if (inter) return { object: obj, interaction: inter, point: hits[i].point };
         }
-        var allResults = [];
-        var bestHit = null;
-
-        for (var ti = 0; ti < tryVariants.length; ti++) {
-            var v = tryVariants[ti];
-            var ndc3 = new THREE.Vector3(v.mx, v.my, 0.5);
-            ndc3.unproject(camera);
-            var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
-            var dir = ndc3.clone().sub(origin).normalize();
-            this.raycaster.set(origin, dir);
-
-            var hits = this.raycaster.intersectObjects(all, false);
-            var hitStr = '—';
-            for (var i = 0; i < hits.length; i++) {
-                var obj = hits[i].object;
-                var inter = obj.userData && obj.userData.interaction;
-                if (inter) {
-                    var label = inter.kind + ':' + (inter.id || inter.midi || inter.label || '?');
-                    hitStr = label;
-                    if (!bestHit) bestHit = { object: obj, interaction: inter, point: hits[i].point };
-                    break;
-                }
-            }
-            allResults.push(v.name + '→' + hitStr);
-        }
-
-        if (debugEl) {
-            debugEl.textContent = [
-                'touch:(' + pointer.x.toFixed(0) + ',' + pointer.y.toFixed(0) + ')',
-                'nx=' + nx.toFixed(3) + ' ny=' + ny.toFixed(3),
-                'cw=' + cw.toFixed(0) + ' ch=' + ch.toFixed(0),
-            ].concat(allResults).join('\n');
-        }
-
-        return bestHit;
+        return null;
     },
 
     handlePointerDown: function (evt) {
@@ -3220,48 +3173,45 @@ AFRAME.registerComponent('runtime-drum-machine', {
     },
 
     raycastInteractives: function (evt) {
-        const pointer = getRuntimeEventPointer(evt);
-        const scene = this.el.sceneEl;
-        const camera = scene.camera;
+        var pointer = getRuntimeEventPointer(evt);
+        var scene = this.el.sceneEl;
+        var camera = scene.camera;
         if (!camera) return null;
 
-        // 全面更新所有世界矩阵
         scene.object3D.updateMatrixWorld();
-        camera.updateMatrixWorld();
 
-        // 使用系统安全的 NDC 映射：优先用 canvas 尺寸，兜底用 window 尺寸
-        const canvas = scene.canvas;
-        const cw = (canvas && canvas.clientWidth) || window.innerWidth;
-        const ch = (canvas && canvas.clientHeight) || window.innerHeight;
-        const cl = (canvas && canvas.getBoundingClientRect().left) || 0;
-        const ct = (canvas && canvas.getBoundingClientRect().top) || 0;
-        const mouse = new THREE.Vector2(
-            ((pointer.x - cl) / cw) * 2 - 1,
-            -((pointer.y - ct) / ch) * 2 + 1
-        );
+        var canvas = scene.canvas;
+        var rect = canvas ? canvas.getBoundingClientRect() : null;
+        var cw = (rect && rect.width) || window.innerWidth;
+        var ch = (rect && rect.height) || window.innerHeight;
+        var cl = (rect && rect.left) || 0;
+        var ct = (rect && rect.top) || 0;
+        var nx = ((pointer.x - cl) / cw);
+        var ny = ((pointer.y - ct) / ch);
 
-        // AR.js 使用 THREE.Camera，setFromCamera 需要 isPerspectiveCamera=true
-        const wasPC = camera.isPerspectiveCamera;
-        if (!wasPC) camera.isPerspectiveCamera = true;
-        try {
-            this.raycaster.setFromCamera(mouse, camera);
-        } finally {
-            if (!wasPC) camera.isPerspectiveCamera = false;
+        // AR.js 相机为镜像画面，触摸 X 轴需翻转，Y 轴保持标准
+        var mx = 1 - nx * 2;
+        var my = -(ny * 2 - 1);
+
+        var ndc3 = new THREE.Vector3(mx, my, 0.5);
+        ndc3.unproject(camera);
+        var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+        var dir = ndc3.clone().sub(origin).normalize();
+        this.raycaster.set(origin, dir);
+
+        var all = [];
+        function walk(obj) {
+            if (obj.userData && obj.userData.interaction) all.push(obj);
+            var kids = obj.children;
+            if (kids) for (var i = 0; i < kids.length; i++) walk(kids[i]);
         }
+        if (this.group) walk(this.group);
 
-        // 递归遍历 group 内所有子孙查找交互物体
-        const collectInteractives = (obj, out) => {
-            if (obj.userData && obj.userData.interaction) out.push(obj);
-            if (obj.children) obj.children.forEach(c => collectInteractives(c, out));
-        };
-        const all = [];
-        if (this.group) collectInteractives(this.group, all);
-
-        const hits = this.raycaster.intersectObjects(all, false);
-        for (let i = 0; i < hits.length; i++) {
-            const obj = hits[i].object;
-            const interaction = obj.userData && obj.userData.interaction;
-            if (interaction) return { object: obj, interaction: interaction, point: hits[i].point };
+        var hits = this.raycaster.intersectObjects(all, false);
+        for (var i = 0; i < hits.length; i++) {
+            var obj = hits[i].object;
+            var inter = obj.userData && obj.userData.interaction;
+            if (inter) return { object: obj, interaction: inter, point: hits[i].point };
         }
         return null;
     },
@@ -3269,14 +3219,15 @@ AFRAME.registerComponent('runtime-drum-machine', {
     handlePointerDown: function (evt) {
         if (!this.el.getAttribute('visible')) return;
         if (modelGestureMode !== 'interact') return;
-        const hit = this.raycastInteractives(evt);
+        var hit = this.raycastInteractives(evt);
         if (!hit) return;
-        const { object, interaction } = hit;
+        var object = hit.object;
+        var interaction = hit.interaction;
         evt.stopPropagation();
         if (evt.preventDefault) evt.preventDefault();
         runtimeControlPointerActive = true;
         this.pointerHandledUntil = Date.now() + 500;
-        const pointer = getRuntimeEventPointer(evt);
+        var pointer = getRuntimeEventPointer(evt);
 
         if (interaction.kind === 'drumPad') {
             if (this.activePressMesh && this.activePressMesh !== object) flashRuntimeMesh(this.activePressMesh, false, 0.018);

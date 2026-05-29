@@ -1888,6 +1888,8 @@ function bindCanvasEvents(canvas) {
     const rect = canvas.getBoundingClientRect();
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+    camera.updateMatrixWorld();
+    scene.updateMatrixWorld();
     raycaster.setFromCamera(pointer, camera);
     const hits = raycaster.intersectObjects(interactives, false);
     return hits.find((hit) => hit.object.visible !== false && isDescendantOf(hit.object, activeModelGroup));

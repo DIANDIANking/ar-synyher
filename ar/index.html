@@ -2356,6 +2356,7 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         document.addEventListener('touchmove', this.handlePointerMove, { passive: false });
         document.addEventListener('mouseup', this.handlePointerUp);
         document.addEventListener('touchend', this.handlePointerUp);
+        document.addEventListener('touchcancel', this.handlePointerUp);
         this.build();
     },
 
@@ -2742,6 +2743,9 @@ AFRAME.registerComponent('runtime-synth-workstation', {
             -((pointer.y - rect.top) / rect.height) * 2 + 1,
             0.5
         );
+        // 关键修复：更新 camera 和 scene 的世界矩阵，确保 AR.js 追踪后的最新姿态生效
+        camera.updateMatrixWorld();
+        scene.object3D.updateMatrixWorld();
         ndc.unproject(camera);
         this.raycaster.ray.origin.setFromMatrixPosition(camera.matrixWorld);
         this.raycaster.ray.direction.copy(ndc).sub(this.raycaster.ray.origin).normalize();
@@ -2822,6 +2826,13 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         pointerUp(pointerId);
         if (this.activeKeys) {
             this.activeKeys.delete(pointerId);
+            // 安全兜底：如果通过 pointerId 没匹配到活跃按键，强制释放所有发声
+            if (this.activeKeys.size > 0 && !activePointers.has(pointerId)) {
+                this.activeKeys.forEach((obj, pid) => {
+                    pointerUp(pid);
+                });
+                this.activeKeys.clear();
+            }
         }
         if (this.dragState) {
             this.dragState = null;
@@ -2892,6 +2903,7 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         document.removeEventListener('touchmove', this.handlePointerMove);
         document.removeEventListener('mouseup', this.handlePointerUp);
         document.removeEventListener('touchend', this.handlePointerUp);
+        document.removeEventListener('touchcancel', this.handlePointerUp);
     }
 });
 
@@ -2919,6 +2931,7 @@ AFRAME.registerComponent('runtime-drum-machine', {
         document.addEventListener('touchmove', this.handlePointerMove, { passive: false });
         document.addEventListener('mouseup', this.handlePointerUp);
         document.addEventListener('touchend', this.handlePointerUp);
+        document.addEventListener('touchcancel', this.handlePointerUp);
         this.build();
     },
 
@@ -3161,6 +3174,9 @@ AFRAME.registerComponent('runtime-drum-machine', {
             -((pointer.y - rect.top) / rect.height) * 2 + 1,
             0.5
         );
+        // 关键修复：更新 camera 和 scene 的世界矩阵，确保 AR.js 追踪后的最新姿态生效
+        camera.updateMatrixWorld();
+        scene.object3D.updateMatrixWorld();
         ndc.unproject(camera);
         this.raycaster.ray.origin.setFromMatrixPosition(camera.matrixWorld);
         this.raycaster.ray.direction.copy(ndc).sub(this.raycaster.ray.origin).normalize();
@@ -3234,6 +3250,9 @@ AFRAME.registerComponent('runtime-drum-machine', {
             flashRuntimeMesh(this.activePressMesh, false, 0.018);
             this.activePressMesh = null;
         }
+        // 安全兜底：释放所有活跃的发声按键
+        const pointerId = getRuntimePointerId(evt);
+        pointerUp(pointerId);
         if (this.dragState) {
             this.dragState = null;
         }
@@ -3286,6 +3305,7 @@ AFRAME.registerComponent('runtime-drum-machine', {
         document.removeEventListener('touchmove', this.handlePointerMove);
         document.removeEventListener('mouseup', this.handlePointerUp);
         document.removeEventListener('touchend', this.handlePointerUp);
+        document.removeEventListener('touchcancel', this.handlePointerUp);
     }
 });
 

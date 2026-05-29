@@ -2761,13 +2761,32 @@ AFRAME.registerComponent('runtime-synth-workstation', {
 
         // 暂时强制调试模式，找出正确的NDC映射方案
         window._synthDebug = true;
-        // 尝试四种 NDC 映射方案，找到能命中正确按钮的那个
         var tryVariants = [
             { name: '标准',  mx: nx*2-1,   my: -(ny*2-1) },
             { name: 'X翻转', mx: 1-nx*2,   my: -(ny*2-1) },
             { name: 'Y翻转', mx: nx*2-1,   my: ny*2-1 },
             { name: 'XY翻转',mx: 1-nx*2,   my: ny*2-1 },
         ];
+
+        // 递归收集 this.group 下全部交互 mesh（只做一次）
+        var all = [];
+        function walk(obj) {
+            if (obj.userData && obj.userData.interaction) all.push(obj);
+            var kids = obj.children;
+            if (kids) for (var i = 0; i < kids.length; i++) walk(kids[i]);
+        }
+        if (this.group) walk(this.group);
+
+        // 用四种方案都测一遍，全部结果写入调试面板
+        var debugEl = document.getElementById('touch-debug');
+        if (!debugEl) {
+            debugEl = document.createElement('div');
+            debugEl.id = 'touch-debug';
+            debugEl.style.cssText = 'position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.85);color:#0f0;font-size:11px;padding:6px;z-index:9999;max-width:90vw;word-break:break-all;pointer-events:none;font-family:monospace;line-height:1.3;';
+            document.body.appendChild(debugEl);
+        }
+        var allResults = [];
+        var bestHit = null;
 
         for (var ti = 0; ti < tryVariants.length; ti++) {
             var v = tryVariants[ti];
@@ -2777,37 +2796,30 @@ AFRAME.registerComponent('runtime-synth-workstation', {
             var dir = ndc3.clone().sub(origin).normalize();
             this.raycaster.set(origin, dir);
 
-            var all = [];
-            function walk(obj) {
-                if (obj.userData && obj.userData.interaction) all.push(obj);
-                var kids = obj.children;
-                if (kids) for (var i = 0; i < kids.length; i++) walk(kids[i]);
-            }
-            if (this.group) walk(this.group);
-
             var hits = this.raycaster.intersectObjects(all, false);
+            var hitStr = '—';
             for (var i = 0; i < hits.length; i++) {
                 var obj = hits[i].object;
                 var inter = obj.userData && obj.userData.interaction;
                 if (inter) {
-                    if (window._synthDebug) {
-                        var pos = obj.position;
-                        debugEl.textContent = [
-                            'touch:(' + pointer.x.toFixed(1) + ',' + pointer.y.toFixed(1) + ')',
-                            'nx=' + nx.toFixed(3) + ' ny=' + ny.toFixed(3),
-                            'hit:' + inter.kind + ' ' + (inter.id || inter.midi || inter.label || ''),
-                            'variant:' + v.name,
-                            'objPos:(' + (pos.x||0).toFixed(2) + ',' + (pos.y||0).toFixed(2) + ',' + (pos.z||0).toFixed(2) + ')'
-                        ].join('\n');
-                    }
-                    return { object: obj, interaction: inter, point: hits[i].point };
+                    var label = inter.kind + ':' + (inter.id || inter.midi || inter.label || '?');
+                    hitStr = label;
+                    if (!bestHit) bestHit = { object: obj, interaction: inter, point: hits[i].point };
+                    break;
                 }
             }
+            allResults.push(v.name + '→' + hitStr);
         }
-        if (window._synthDebug) {
-            debugEl.textContent = 'nx='+nx.toFixed(3)+' ny='+ny.toFixed(3)+' MISS';
+
+        if (debugEl) {
+            debugEl.textContent = [
+                'touch:(' + pointer.x.toFixed(0) + ',' + pointer.y.toFixed(0) + ')',
+                'nx=' + nx.toFixed(3) + ' ny=' + ny.toFixed(3),
+                'cw=' + cw.toFixed(0) + ' ch=' + ch.toFixed(0),
+            ].concat(allResults).join('\n');
         }
-        return null;
+
+        return bestHit;
     },
 
     handlePointerDown: function (evt) {

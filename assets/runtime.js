@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v6";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v7";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v6";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v7";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -36,6 +36,7 @@ const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
 const MARKER_LOST_TIMEOUT_MS = 300;
 const PATTERN_SWITCH_MARGIN = 0.035;
+const PATTERN_SCORE_LOG_INTERVAL_MS = 650;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
 const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
@@ -179,6 +180,8 @@ let canvasBound = false;
 let drumControls = { ...DRUM_CONTROLS };
 let drumControlMeshes = new Map();
 let patternTargetsReady = null;
+let patternConfigLogged = false;
+let lastPatternScoreLogAt = 0;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -262,7 +265,11 @@ function setSynthActive(active) {
 }
 
 function setActiveInstrumentModel(instrumentType) {
-  activeModelGroup = instrumentType === "drum-machine" ? drumGroup : synthGroup;
+  activeModelGroup = instrumentType === "drum-machine"
+    ? drumGroup
+    : instrumentType === "synthesizer"
+      ? synthGroup
+      : null;
   if (synthGroup) synthGroup.visible = false;
   if (drumGroup) drumGroup.visible = false;
 }
@@ -277,6 +284,15 @@ function resetUserTransform() {
 
 function ensurePatternTargetsLoaded() {
   if (patternTargetsReady) return patternTargetsReady;
+  if (!patternConfigLogged) {
+    console.info("[AR pattern config]", getAllCardTargets().map((target, index) => ({
+      index,
+      name: target.id,
+      instrument: target.instrumentId,
+      url: target.markerResource?.markerUrl
+    })));
+    patternConfigLogged = true;
+  }
   patternTargetsReady = Promise.all(getAllCardTargets().map(async (target) => {
     const url = target.markerResource?.markerUrl;
     if (!url) return target;
@@ -285,13 +301,17 @@ function ensurePatternTargetsLoaded() {
     const text = await response.text();
     const rotations = parsePattRotations(text);
     if (!rotations.length) throw new Error(`Invalid marker pattern: ${url}`);
+    const checksum = checksumPatternText(text);
     target.patternSignature = {
       minConfidence: target.patternMatch?.minConfidence,
-      rotations
+      rotations,
+      checksum
     };
-    console.info(`[AR pattern] loaded: ${target.id}`, {
+    console.info("[AR pattern loaded]", {
+      name: target.id,
       instrument: target.instrumentId,
       url,
+      checksum,
       rotations: rotations.length,
       minConfidence: target.patternSignature.minConfidence
     });
@@ -302,6 +322,15 @@ function ensurePatternTargetsLoaded() {
     throw err;
   });
   return patternTargetsReady;
+}
+
+function checksumPatternText(text) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, "0");
 }
 
 function parsePattRotations(text) {
@@ -582,7 +611,11 @@ async function playDrumMachinePad(options = {}) {
 }
 
 function activateInstrumentMarker(details = {}) {
-  const config = details.markerResource || synthMarkerBinding;
+  const config = details.markerResource;
+  if (!config?.cardId) {
+    console.warn("[AR show] ignored: missing explicit marker resource", details);
+    return;
+  }
   const alreadyActive = window.activeInstrument?.cardId === config.cardId;
   if (window.activeInstrument?.cardId !== config.cardId) {
     const isDrum = config.instrumentType === "drum-machine";
@@ -590,6 +623,10 @@ function activateInstrumentMarker(details = {}) {
       instrument: config.instrumentType,
       source: details.source,
       recognizedText: details.recognizedText
+    });
+    console.info("[AR show]", {
+      instrument: config.cardId,
+      type: config.instrumentType
     });
     window.activeInstrument = {
       ...config,
@@ -2045,7 +2082,8 @@ function scanTextCardMarker() {
   const imageData = scanner.ctx.getImageData(0, 0, width, height);
   const frame = { imageData, width, height };
   const pose = detectAnyCardPoseFromFrame(frame);
-  const cardId = pose?.cardId || REQUIRED_CARD_ID;
+  if (!pose) return handleMarkerMiss(PROMPT_FIND_CARD);
+  const cardId = pose.cardId;
   const cardTarget = getCardTarget(cardId);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
     payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
@@ -2072,8 +2110,10 @@ function handleMarkerMiss(promptText) {
 
 function detectAnyCardPoseFromFrame(frame) {
   const hits = [];
+  const scores = {};
   for (const target of getAllCardTargets()) {
     const pose = detectCardPoseFromFrame(target, frame);
+    scores[target.id] = Number((pose?.patternConfidence || 0).toFixed(4));
     if (!pose) continue;
     hits.push({
       score: pose.patternConfidence || 0,
@@ -2086,7 +2126,10 @@ function detectAnyCardPoseFromFrame(frame) {
       }
     });
   }
-  if (!hits.length) return null;
+  if (!hits.length) {
+    logPatternScores(scores, null);
+    return null;
+  }
   hits.sort((a, b) => b.score - a.score);
   const [best, runnerUp] = hits;
   if (runnerUp && best.score - runnerUp.score < PATTERN_SWITCH_MARGIN) {
@@ -2096,9 +2139,22 @@ function detectAnyCardPoseFromFrame(frame) {
       runnerUp: runnerUp.pose.cardId,
       runnerUpScore: runnerUp.score
     });
+    logPatternScores(scores, null);
     return null;
   }
+  logPatternScores(scores, best.pose.cardId);
   return best.pose;
+}
+
+function logPatternScores(scores, winner) {
+  const now = performance.now();
+  if (now - lastPatternScoreLogAt < PATTERN_SCORE_LOG_INTERVAL_MS) return;
+  lastPatternScoreLogAt = now;
+  console.info("[AR score]", {
+    hechengqi: scores.hechengqi ?? 0,
+    drum: scores.drum ?? 0,
+    winner: winner || null
+  });
 }
 
 function mapVideoPointToStage(point, scanScale) {

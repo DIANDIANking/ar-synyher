@@ -1937,11 +1937,11 @@ function bindCanvasEvents(canvas) {
 
 function resizeCanvas() {
   const canvas = $("#synth-canvas") || $("#guitar-canvas");
-  const stage = $("#ar-stage");
-  if (!canvas || !renderer || !camera || !stage) return;
-  const rect = stage.getBoundingClientRect();
+  if (!canvas || !renderer || !camera) return;
+  const rect = canvas.getBoundingClientRect();
   const width = Math.max(1, Math.floor(rect.width));
   const height = Math.max(1, Math.floor(rect.height));
+  if (width < 2 || height < 2) return;
   renderer.setSize(width, height, false);
   camera.aspect = width / height;
   camera.updateProjectionMatrix();

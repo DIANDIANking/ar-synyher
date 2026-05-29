@@ -54,6 +54,7 @@ button {
   z-index: 20;
   display: grid;
   place-items: center;
+  overflow-y: auto;
   padding: calc(28px + env(safe-area-inset-top)) calc(22px + env(safe-area-inset-right)) calc(28px + env(safe-area-inset-bottom)) calc(22px + env(safe-area-inset-left));
   background:
     linear-gradient(160deg, rgba(5, 8, 14, 0.98), rgba(13, 18, 30, 0.98) 48%, rgba(20, 11, 30, 0.98)),

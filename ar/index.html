@@ -2759,15 +2759,14 @@ AFRAME.registerComponent('runtime-synth-workstation', {
             }
         }
 
-        // 尝试多种 NDC 映射方案，找出能让触摸命中的那个
-        var tryVariants = window._synthDebug ? [
-            { name: '标准', mx: nx*2-1,          my: -(ny*2-1) },
-            { name: 'X翻转', mx: 1-nx*2,          my: -(ny*2-1) },
-            { name: 'Y翻转', mx: nx*2-1,          my: ny*2-1 },
-            { name: 'XY翻转', mx: 1-nx*2,         my: ny*2-1 },
-        ] : [
-            // 生产模式只试XY翻转（根据你的反馈：左→右，下→上）
-            { name: 'XY翻转', mx: 1-nx*2, my: ny*2-1 },
+        // 暂时强制调试模式，找出正确的NDC映射方案
+        window._synthDebug = true;
+        // 尝试四种 NDC 映射方案，找到能命中正确按钮的那个
+        var tryVariants = [
+            { name: '标准',  mx: nx*2-1,   my: -(ny*2-1) },
+            { name: 'X翻转', mx: 1-nx*2,   my: -(ny*2-1) },
+            { name: 'Y翻转', mx: nx*2-1,   my: ny*2-1 },
+            { name: 'XY翻转',mx: 1-nx*2,   my: ny*2-1 },
         ];
 
         for (var ti = 0; ti < tryVariants.length; ti++) {

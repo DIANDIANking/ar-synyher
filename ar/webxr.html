@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <title>岭南乐器WebXR增强现实体验</title>
+    
+    <!-- Three.js核心库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="./js/GLTFLoader.js"></script>
+    <script src="./js/DRACOLoader.js"></script>
+    
+    <!-- 二维码检测库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.min.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            background: #000;
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        #startContainer {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 1000;
+            background: rgba(0,0,0,0.8);
+            padding: 30px;
+            border-radius: 15px;
+            border: 2px solid #00ff00;
+        }
+        
+        #startWebXR {
+            padding: 20px 40px;
+            font-size: 18px;
+            background: linear-gradient(45deg, #007BFF, #0056b3);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            margin: 10px;
+            box-shadow: 0 4px 15px rgba(0,123,255,0.3);
+            transition: all 0.3s ease;
+        }
+        
+        #startWebXR:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0,123,255,0.4);
+        }
+        
+        #info {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 8px;
+            max-width: 300px;
+            z-index: 100;
+            display: none;
+            border: 1px solid #00ff00;
+        }
+        
+        #controls {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border-radius: 8px;
+            z-index: 100;
+            display: none;
+            border: 1px solid #007BFF;
+        }
+        
+        #debugInfo {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 12px;
+            z-index: 100;
+            display: none;
+            max-height: 200px;
+            overflow-y: auto;
+            min-width: 200px;
+            border: 1px solid #ffc107;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            background: #0056b3;
+            transform: translateY(-1px);
+        }
+        
+        .btn:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        #qrCanvas {
+            display: none;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-ready { background: #28a745; }
+        .status-scanning { background: #ffc107; animation: pulse 1s infinite; }
+        .status-detected { background: #007BFF; }
+        .status-error { background: #dc3545; }
+        
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        
+        .detection-overlay {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            border: 3px solid #00ff00;
+            border-radius: 20px;
+            z-index: 50;
+            display: none;
+            animation: scanAnimation 2s infinite;
+        }
+        
+        @keyframes scanAnimation {
+            0%, 100% { border-color: #00ff00; }
+            50% { border-color: #ffff00; }
+        }
+        
+        .detection-overlay::before {
+            content: '将二维码放在框内\A或按手柄触发器测试';
+            position: absolute;
+            top: -50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            color: #00ff00;
+            padding: 8px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            white-space: pre;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div id="startContainer">
+        <h2>🎵 岭南乐器WebXR体验</h2>
+        <p>使用VR头显进入增强现实乐器世界</p>
+        <button id="startWebXR">启动WebXR AR体验</button>
+        <p><small>
+            ✅ 支持Meta Quest 3/3S<br>
+            ✅ 彩色摄像头透视<br>
+            ✅ 二维码自动检测<br>
+            ✅ 手柄/手势交互<br>
+            <br>
+            <strong>⚠️ 首次使用请确保：</strong><br>
+            1. 在Quest浏览器输入 chrome://flags<br>
+            2. 开启 "WebXR incubations"<br>
+            3. 重启浏览器
+        </small></p>
+    </div>
+    
+    <div id="info">
+        <div><span class="status-indicator status-ready"></span>状态: <span id="status">准备就绪</span></div>
+        <div>检测到: <span id="qrResult">无</span></div>
+        <div>当前乐器: <span id="currentInstrument">无</span></div>
+        <div id="instructionText">
+            <strong>🎮 使用方法：</strong><br>
+            1. 按手柄触发器循环测试乐器<br>
+            2. 或尝试将二维码置于视野中心<br>
+            <small>⚠️ 注意：Quest目前限制摄像头访问</small>
+        </div>
+    </div>
+    
+    <div id="controls">
+        <button id="playButton" class="btn" disabled>播放音乐</button>
+        <button id="exitWebXR" class="btn">退出AR</button>
+        <div style="margin-top: 10px;">
+            <span id="audioInfo">无音频</span>
+        </div>
+    </div>
+    
+    <div id="debugInfo">
+        <div><strong>调试信息:</strong></div>
+        <div id="debugText"></div>
+    </div>
+    
+    <div class="detection-overlay" id="detectionOverlay"></div>
+    <canvas id="qrCanvas"></canvas>
+
+    <script>
+        // 全局变量
+        let scene, camera, renderer;
+        let xrSession = null;
+        let xrReferenceSpace = null;
+        let isWebXRActive = false;
+        
+        // 乐器配置
+        const instrumentConfigs = {
+            'pattern1': {
+                model: 'model1.gltf',
+                audio: 'audio1.mp3',
+                info: 'info1.txt',
+                scale: [0.006, 0.006, 0.006],
+                name: '琵琶'
+            },
+            'pattern2': {
+                model: 'model2.gltf', 
+                audio: 'audio2.mp3',
+                info: 'info2.txt',
+                scale: [0.03, 0.03, 0.03],
+                name: '葫芦丝'
+            }
+        };
+        
+        // 应用状态
+        let currentInstrument = null;
+        let activeModel = null;
+        let audioManager = null;
+        let qrDetector = null;
+        let modelLoader = null;
+        let controllers = [];
+        
+        // 初始化应用
+        class WebXRInstrumentApp {
+            constructor() {
+                this.init();
+            }
+            
+            async init() {
+                console.log('初始化WebXR乐器应用...');
+                
+                // 检查WebXR支持
+                if (!navigator.xr) {
+                    this.showError('此设备不支持WebXR API');
+                    return;
+                }
+                
+                // 检查AR支持
+                const arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+                if (!arSupported) {
+                    this.showError('此设备不支持WebXR AR模式\n请确保：\n1. 使用Quest 3/3S或兼容设备\n2. 浏览器已开启WebXR实验特性');
+                    return;
+                }
+                
+                // 检查可选特性支持
+                try {
+                    const localFloorSupported = await navigator.xr.isSessionSupported('immersive-ar', {
+                        optionalFeatures: ['local-floor']
+                    });
+                    this.updateDebugInfo(`local-floor支持: ${localFloorSupported ? '是' : '否'}`);
+                } catch (e) {
+                    this.updateDebugInfo('无法检查local-floor支持');
+                }
+                
+                // 初始化Three.js
+                this.setupThreeJS();
+                
+                // 初始化模型加载器
+                this.initModelLoader();
+                
+                // 初始化音频管理器
+                this.audioManager = new AudioManager();
+                await this.audioManager.preloadAudio(instrumentConfigs);
+                
+                // 初始化二维码检测器
+                this.qrDetector = new QRDetector();
+                
+                // 设置UI事件
+                this.setupUI();
+                
+                this.updateDebugInfo('应用初始化完成');
+                console.log('WebXR乐器应用初始化完成');
+            }
+            
+            setupThreeJS() {
+                // 创建场景
+                scene = new THREE.Scene();
+                
+                // 创建相机
+                camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                camera.position.set(0, 1.6, 3);
+                
+                // 创建渲染器 - Quest优化设置
+                renderer = new THREE.WebGLRenderer({
+                    antialias: true,
+                    alpha: true, // 关键：启用透明背景用于AR透视
+                    powerPreference: 'high-performance', // Quest性能优化
+                    stencil: false // Quest性能优化
+                });
+                renderer.setSize(window.innerWidth, window.innerHeight);
+                renderer.shadowMap.enabled = true;
+                renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+                
+                // 启用WebXR
+                renderer.xr.enabled = true;
+                
+                document.body.appendChild(renderer.domElement);
+                
+                // 添加光照
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                scene.add(ambientLight);
+                
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(10, 10, 5);
+                directionalLight.castShadow = true;
+                scene.add(directionalLight);
+                
+                // 启动渲染循环
+                renderer.setAnimationLoop(this.render.bind(this));
+                
+                console.log('Three.js设置完成');
+            }
+            
+            initModelLoader() {
+                if (typeof THREE.GLTFLoader === 'function') {
+                    modelLoader = new THREE.GLTFLoader();
+                    
+                    if (typeof THREE.DRACOLoader === 'function') {
+                        const dracoLoader = new THREE.DRACOLoader();
+                        dracoLoader.setDecoderPath('./js/draco/');
+                        dracoLoader.preload();
+                        modelLoader.setDRACOLoader(dracoLoader);
+                        this.updateDebugInfo('GLTFLoader + DRACOLoader 已就绪');
+                    } else {
+                        this.updateDebugInfo('GLTFLoader 已就绪（无Draco支持）');
+                    }
+                } else {
+                    this.updateDebugInfo('GLTFLoader 未找到，请检查文件');
+                }
+            }
+            
+            setupUI() {
+                document.getElementById('startWebXR').addEventListener('click', () => {
+                    this.startWebXR();
+                });
+                
+                document.getElementById('playButton').addEventListener('click', () => {
+                    this.toggleAudio();
+                });
+                
+                document.getElementById('exitWebXR').addEventListener('click', () => {
+                    this.exitWebXR();
+                });
+            }
+            
+            async startWebXR() {
+                try {
+                    this.updateStatus('启动WebXR...');
+                    this.updateDebugInfo('请求WebXR AR会话...');
+                    
+                    // 请求WebXR AR会话 - 添加图像追踪特性
+                    xrSession = await navigator.xr.requestSession('immersive-ar', {
+                        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking', 'image-tracking']
+                    });
+                    
+                    // 设置渲染器 - 确保兼容性
+                    await renderer.xr.setSession(xrSession);
+                    
+                    // 等待会话完全初始化
+                    await new Promise(resolve => {
+                        xrSession.addEventListener('end', () => {
+                            this.onSessionEnd();
+                        });
+                        // 给会话一些时间来完全初始化
+                        setTimeout(resolve, 100);
+                    });
+                    
+                    // 获取参考空间 - 尝试多种类型以确保兼容性
+                    try {
+                        xrReferenceSpace = await xrSession.requestReferenceSpace('local-floor');
+                        this.updateDebugInfo('使用local-floor参考空间');
+                    } catch (e) {
+                        try {
+                            xrReferenceSpace = await xrSession.requestReferenceSpace('local');
+                            this.updateDebugInfo('降级到local参考空间');
+                        } catch (e2) {
+                            try {
+                                xrReferenceSpace = await xrSession.requestReferenceSpace('viewer');
+                                this.updateDebugInfo('降级到viewer参考空间');
+                            } catch (e3) {
+                                throw new Error('无法获取任何支持的参考空间类型');
+                            }
+                        }
+                    }
+                    
+                    // 设置控制器
+                    this.setupControllers();
+                    
+                    // 启动二维码检测（有限功能）
+                    this.qrDetector.startWebXRDetection((qrData) => {
+                        this.handleQRDetection(qrData);
+                    });
+                    
+                    // 更新UI
+                    this.showWebXRUI();
+                    
+                    isWebXRActive = true;
+                    this.updateStatus('WebXR运行中');
+                    this.updateDebugInfo('✅ WebXR AR会话已启动');
+                    this.updateDebugInfo('');
+                    this.updateDebugInfo('🎮 快速测试：按手柄触发器');
+                    this.updateDebugInfo('📱 二维码检测：功能有限');
+                    this.updateDebugInfo('   (Quest浏览器限制摄像头访问)');
+                    this.updateDebugInfo('');
+                    this.updateDebugInfo('💡 建议：主要使用手柄进行交互');
+                    
+                    console.log('WebXR启动成功');
+                    
+                } catch (error) {
+                    console.error('WebXR启动失败:', error);
+                    
+                    let errorMessage = 'WebXR启动失败: ';
+                    if (error.message.includes('requestReferenceSpace')) {
+                        errorMessage += '参考空间不支持\n请检查Quest设备设置';
+                    } else if (error.message.includes('requestSession')) {
+                        errorMessage += '无法创建AR会话\n请确保设备支持并已开启AR模式';
+                    } else {
+                        errorMessage += error.message;
+                    }
+                    
+                    this.showError(errorMessage);
+                    this.updateDebugInfo('详细错误: ' + error.stack);
+                }
+            }
+            
+            setupControllers() {
+                // 设置控制器
+                for (let i = 0; i < 2; i++) {
+                    const controller = renderer.xr.getController(i);
+                    
+                    controller.addEventListener('select', (event) => {
+                        this.onControllerSelect(event);
+                    });
+                    
+                    scene.add(controller);
+                    controllers.push(controller);
+                    
+                    // 添加控制器射线
+                    const geometry = new THREE.BufferGeometry().setFromPoints([
+                        new THREE.Vector3(0, 0, 0),
+                        new THREE.Vector3(0, 0, -1)
+                    ]);
+                    const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color: 0x00ff00 }));
+                    controller.add(line);
+                }
+                
+                this.updateDebugInfo('控制器已设置 - 按下触发器测试模型');
+                
+                // 添加测试计数器
+                this.testModelIndex = 0;
+            }
+            
+            onControllerSelect(event) {
+                // 测试功能：循环切换乐器模型
+                const testInstruments = ['pattern1', 'pattern2'];
+                const currentTest = testInstruments[this.testModelIndex % testInstruments.length];
+                
+                this.updateDebugInfo(`🎮 手柄触发 - 测试加载 ${currentTest}`);
+                console.log('手柄触发，测试加载:', currentTest);
+                
+                // 触发模型切换
+                this.handleQRDetection(currentTest);
+                
+                this.testModelIndex++;
+                
+                // 如果有活跃模型，也可以旋转它
+                if (activeModel) {
+                    activeModel.rotation.y += Math.PI / 4;
+                    this.updateDebugInfo('模型已旋转');
+                }
+            }
+            
+            handleQRDetection(qrData) {
+                console.log('检测到二维码:', qrData);
+                
+                const config = instrumentConfigs[qrData];
+                if (!config) {
+                    this.updateQRResult('未知码: ' + qrData);
+                    return;
+                }
+                
+                this.updateQRResult(qrData);
+                this.updateCurrentInstrument(config.name);
+                this.switchInstrument(qrData, config);
+            }
+            
+            async switchInstrument(instrumentId, config) {
+                try {
+                    this.updateDebugInfo(`正在加载${config.name}...`);
+                    
+                    // 移除当前模型
+                    if (activeModel) {
+                        scene.remove(activeModel);
+                        activeModel = null;
+                    }
+                    
+                    // 加载新模型
+                    const model = await this.loadModel(config.model);
+                    if (model) {
+                        // 设置模型位置和缩放
+                        model.position.set(0, 0.5, -0.6); // 在用户前方1.5米
+                        model.scale.set(...config.scale);
+                        
+                        // 添加到场景
+                        scene.add(model);
+                        activeModel = model;
+                        
+                        // 添加动效
+                        //this.addDynamicEffects(model);
+                        
+                        // 切换音频
+                        await this.audioManager.switchAudio(config.audio);
+                        this.updateAudioInfo(config.name + ' 音乐');
+                        this.enableAudioButton();
+                        
+                        this.updateDebugInfo(`✅ ${config.name} 加载成功`);
+                        this.updateDebugInfo('🎮 按手柄触发器旋转模型');
+                        this.updateDebugInfo('🎵 点击播放按钮测试音乐');
+                    }
+                    
+                } catch (error) {
+                    console.error('切换乐器失败:', error);
+                    this.updateDebugInfo('模型加载失败: ' + error.message);
+                }
+            }
+            
+            loadModel(modelPath) {
+                return new Promise((resolve, reject) => {
+                    if (!modelLoader) {
+                        resolve(this.createFallbackModel(modelPath));
+                        return;
+                    }
+                    
+                    modelLoader.load(
+                        modelPath,
+                        (gltf) => {
+                            // 设置阴影
+                            gltf.scene.traverse((child) => {
+                                if (child.isMesh) {
+                                    child.castShadow = true;
+                                    child.receiveShadow = true;
+                                }
+                            });
+                            
+                            resolve(gltf.scene);
+                        },
+                        (progress) => {
+                            // 加载进度
+                            if (progress.total > 0) {
+                                const percent = (progress.loaded / progress.total * 100).toFixed(1);
+                                this.updateDebugInfo(`加载进度: ${percent}%`);
+                            }
+                        },
+                        (error) => {
+                            console.error('GLTF加载失败:', error);
+                            this.updateDebugInfo('⚠️ GLTF加载失败，使用备用模型');
+                            resolve(this.createFallbackModel(modelPath));
+                        }
+                    );
+                });
+            }
+            
+            createFallbackModel(modelPath) {
+                console.log('创建备用几何模型:', modelPath);
+                this.updateDebugInfo('📦 使用程序生成的备用模型');
+                
+                const group = new THREE.Group();
+                
+                if (modelPath.includes('model1')) {
+                    // 创建琵琶样式的几何体
+                    const bodyGeometry = new THREE.SphereGeometry(0.3, 16, 16);
+                    const bodyMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+                    const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+                    group.add(body);
+                    
+                    // 琵琶颈
+                    const neckGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.8);
+                    const neckMaterial = new THREE.MeshPhongMaterial({ color: 0x654321 });
+                    const neck = new THREE.Mesh(neckGeometry, neckMaterial);
+                    neck.position.y = 0.5;
+                    group.add(neck);
+                } else {
+                    // 创建葫芦丝样式的几何体
+                    const mainGeometry = new THREE.CylinderGeometry(0.02, 0.02, 0.6);
+                    const mainMaterial = new THREE.MeshPhongMaterial({ color: 0x8B4513 });
+                    const mainPipe = new THREE.Mesh(mainGeometry, mainMaterial);
+                    group.add(mainPipe);
+                    
+                    // 葫芦头
+                    const gourdGeometry = new THREE.SphereGeometry(0.08, 16, 16);
+                    const gourdMaterial = new THREE.MeshPhongMaterial({ color: 0xFFD700 });
+                    const gourd = new THREE.Mesh(gourdGeometry, gourdMaterial);
+                    gourd.position.y = 0.35;
+                    group.add(gourd);
+                }
+                
+                return group;
+            }
+            
+            addDynamicEffects(model) {
+                // 动态材质变化
+                const colors = [0xFF5733, 0x33FF57, 0x3357FF, 0xFFFF33, 0xFF33FF];
+                let colorIndex = 0;
+                
+                const materialInterval = setInterval(() => {
+                    if (!model.parent) {
+                        clearInterval(materialInterval);
+                        return;
+                    }
+                    
+                    model.traverse((child) => {
+                        if (child.isMesh && child.material && child.material.color) {
+                            colorIndex = (colorIndex + 1) % colors.length;
+                            child.material.color.setHex(colors[colorIndex]);
+                        }
+                    });
+                }, 3000);
+                
+                // 动态光照（呼吸效果）
+                const lightAnimation = () => {
+                    if (!model.parent) return;
+                    
+                    const time = Date.now() * 0.001;
+                    const intensity = 0.5 + Math.sin(time) * 0.3;
+                    
+                    // 如果有光源组件，调整强度
+                    model.traverse((child) => {
+                        if (child.isLight) {
+                            child.intensity = intensity;
+                        }
+                    });
+                    
+                    requestAnimationFrame(lightAnimation);
+                };
+                lightAnimation();
+            }
+            
+            toggleAudio() {
+                if (this.audioManager) {
+                    this.audioManager.togglePlayback();
+                }
+            }
+            
+            onSessionEnd() {
+                xrSession = null;
+                xrReferenceSpace = null;
+                isWebXRActive = false;
+                
+                // 停止二维码检测
+                this.qrDetector.stopDetection();
+                
+                // 重置UI
+                this.showStartUI();
+                
+                // 清理场景
+                if (activeModel) {
+                    scene.remove(activeModel);
+                    activeModel = null;
+                }
+                
+                this.updateStatus('WebXR会话已结束');
+                this.updateDebugInfo('WebXR会话已结束');
+            }
+            
+            exitWebXR() {
+                if (xrSession) {
+                    xrSession.end();
+                    xrSession = null;
+                    xrReferenceSpace = null;
+                    isWebXRActive = false;
+                    
+                    // 停止二维码检测
+                    this.qrDetector.stopDetection();
+                    
+                    // 重置UI
+                    this.showStartUI();
+                    
+                    // 清理场景
+                    if (activeModel) {
+                        scene.remove(activeModel);
+                        activeModel = null;
+                    }
+                    
+                    this.updateStatus('已退出WebXR');
+                    this.updateDebugInfo('WebXR会话已结束');
+                }
+            }
+            
+            render() {
+                // 在WebXR模式下进行二维码检测
+                if (isWebXRActive && this.qrDetector) {
+                    this.qrDetector.detectInWebXR(renderer.domElement);
+                }
+                
+                // 模型自动旋转（如果没有被手动控制）
+                if (activeModel && isWebXRActive) {
+                    activeModel.rotation.y += 0.005;
+                }
+                
+                renderer.render(scene, camera);
+            }
+            
+            // UI更新方法
+            showStartUI() {
+                document.getElementById('startContainer').style.display = 'block';
+                document.getElementById('info').style.display = 'none';
+                document.getElementById('controls').style.display = 'none';
+                document.getElementById('debugInfo').style.display = 'none';
+                document.getElementById('detectionOverlay').style.display = 'none';
+            }
+            
+            showWebXRUI() {
+                document.getElementById('startContainer').style.display = 'none';
+                document.getElementById('info').style.display = 'block';
+                document.getElementById('controls').style.display = 'block';
+                document.getElementById('debugInfo').style.display = 'block';
+                document.getElementById('detectionOverlay').style.display = 'block';
+            }
+            
+            updateStatus(status) {
+                document.getElementById('status').textContent = status;
+                
+                // 更新状态指示器
+                const indicator = document.querySelector('.status-indicator');
+                indicator.className = 'status-indicator';
+                
+                if (status.includes('准备')) {
+                    indicator.classList.add('status-ready');
+                } else if (status.includes('扫描') || status.includes('WebXR运行中')) {
+                    indicator.classList.add('status-scanning');
+                } else if (status.includes('检测到')) {
+                    indicator.classList.add('status-detected');
+                } else if (status.includes('错误') || status.includes('失败')) {
+                    indicator.classList.add('status-error');
+                }
+            }
+            
+            updateQRResult(result) {
+                document.getElementById('qrResult').textContent = result;
+            }
+            
+            updateCurrentInstrument(instrument) {
+                document.getElementById('currentInstrument').textContent = instrument;
+            }
+            
+            updateAudioInfo(info) {
+                document.getElementById('audioInfo').textContent = info;
+            }
+            
+            updateDebugInfo(info) {
+                const debugText = document.getElementById('debugText');
+                const timestamp = new Date().toLocaleTimeString();
+                debugText.innerHTML += `<div>${timestamp}: ${info}</div>`;
+                debugText.scrollTop = debugText.scrollHeight;
+            }
+            
+            enableAudioButton() {
+                const button = document.getElementById('playButton');
+                button.disabled = false;
+                button.style.backgroundColor = '#007BFF';
+            }
+            
+            showError(message) {
+                document.getElementById('startContainer').innerHTML = 
+                    `<h2>❌ 错误</h2><p>${message}</p>` +
+                    '<button onclick="location.reload()" class="btn">重新加载</button>';
+            }
+        }
+        
+        // 音频管理器
+        class AudioManager {
+            constructor() {
+                this.audioCache = new Map();
+                this.currentAudio = null;
+                this.isPlaying = false;
+            }
+            
+            async preloadAudio(configs) {
+                for (const [key, config] of Object.entries(configs)) {
+                    try {
+                        const audio = new Audio();
+                        audio.src = config.audio;
+                        audio.preload = 'auto';
+                        
+                        await new Promise((resolve) => {
+                            audio.oncanplaythrough = resolve;
+                            audio.onerror = resolve;
+                            audio.load();
+                        });
+                        
+                        this.audioCache.set(config.audio, audio);
+                        console.log('音频预加载成功:', config.audio);
+                    } catch (error) {
+                        console.error('音频预加载失败:', error);
+                    }
+                }
+            }
+            
+            async switchAudio(audioPath) {
+                if (this.currentAudio) {
+                    this.currentAudio.pause();
+                    this.currentAudio.currentTime = 0;
+                }
+                
+                this.currentAudio = this.audioCache.get(audioPath);
+                this.isPlaying = false;
+                this.updatePlayButton();
+            }
+            
+            togglePlayback() {
+                if (!this.currentAudio) return;
+                
+                if (this.isPlaying) {
+                    this.currentAudio.pause();
+                    this.isPlaying = false;
+                } else {
+                    this.currentAudio.play().then(() => {
+                        this.isPlaying = true;
+                    }).catch((error) => {
+                        console.error('音频播放失败:', error);
+                    });
+                }
+                this.updatePlayButton();
+            }
+            
+            updatePlayButton() {
+                const button = document.getElementById('playButton');
+                if (button) {
+                    button.textContent = this.isPlaying ? '暂停音乐' : '播放音乐';
+                }
+            }
+        }
+        
+        // 二维码检测器 - 更新为WebXR兼容版本
+        class QRDetector {
+            constructor() {
+                this.canvas = document.getElementById('qrCanvas');
+                this.context = this.canvas.getContext('2d');
+                this.isDetecting = false;
+                this.onDetectionCallback = null;
+                this.lastDetectionTime = 0;
+                this.detectionCooldown = 2000;
+                this.detectionAttempts = 0;
+                this.maxAttempts = 100; // 限制尝试次数防止性能问题
+            }
+            
+            startWebXRDetection(callback) {
+                this.onDetectionCallback = callback;
+                this.isDetecting = true;
+                this.detectionAttempts = 0;
+                
+                // 更新调试信息
+                if (window.app) {
+                    window.app.updateDebugInfo('开始WebXR二维码检测...');
+                    window.app.updateDebugInfo('⚠️ 注意：Quest当前不支持原始摄像头访问');
+                    window.app.updateDebugInfo('请尝试以下替代方案：');
+                    window.app.updateDebugInfo('1. 使用较大的二维码（至少5cm x 5cm）');
+                    window.app.updateDebugInfo('2. 确保二维码清晰可见');
+                    window.app.updateDebugInfo('3. 尝试不同的光照条件');
+                }
+                
+                console.log('开始WebXR二维码检测');
+            }
+            
+            detectInWebXR(canvas) {
+                if (!this.isDetecting || !this.onDetectionCallback) return;
+                if (this.detectionAttempts >= this.maxAttempts) {
+                    if (this.detectionAttempts === this.maxAttempts) {
+                        console.log('已达到最大检测尝试次数，减少检测频率');
+                        if (window.app) {
+                            window.app.updateDebugInfo('已达到最大检测尝试次数，减少检测频率');
+                        }
+                    }
+                    this.detectionAttempts++;
+                    return; // 减少检测频率
+                }
+                
+                // 防抖处理
+                const now = Date.now();
+                if (now - this.lastDetectionTime < 200) return; // 降低检测频率到每200ms
+                
+                this.detectionAttempts++;
+                
+                try {
+                    // 调试：定期报告检测状态
+                    if (this.detectionAttempts % 50 === 0) {
+                        console.log(`二维码检测尝试 ${this.detectionAttempts}`);
+                        if (window.app) {
+                            window.app.updateDebugInfo(`二维码检测尝试 ${this.detectionAttempts}/100`);
+                        }
+                    }
+                    
+                    // 尝试从WebXR渲染内容中检测
+                    this.canvas.width = canvas.width || 512;
+                    this.canvas.height = canvas.height || 512;
+                    
+                    // 清空canvas
+                    this.context.fillStyle = '#000000';
+                    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                    
+                    // 尝试绘制当前渲染内容
+                    try {
+                        this.context.drawImage(canvas, 0, 0, this.canvas.width, this.canvas.height);
+                    } catch (drawError) {
+                        // 预期的错误 - WebXR的canvas可能无法直接读取
+                        if (this.detectionAttempts === 1) {
+                            console.log('无法直接读取WebXR画布内容（预期行为）');
+                            if (window.app) {
+                                window.app.updateDebugInfo('无法直接读取WebXR画布内容');
+                                window.app.updateDebugInfo('这是Quest的预期限制');
+                            }
+                        }
+                        return;
+                    }
+                    
+                    // 获取图像数据进行检测
+                    const imageData = this.context.getImageData(0, 0, this.canvas.width, this.canvas.height);
+                    
+                    // 检查是否有实际的图像内容
+                    let hasContent = false;
+                    for (let i = 0; i < imageData.data.length; i += 4) {
+                        if (imageData.data[i] !== 0 || imageData.data[i+1] !== 0 || imageData.data[i+2] !== 0) {
+                            hasContent = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!hasContent) {
+                        if (this.detectionAttempts <= 5) {
+                            console.log('画布内容为空');
+                            if (window.app) {
+                                window.app.updateDebugInfo('画布内容为空 - 无法检测二维码');
+                            }
+                        }
+                        return;
+                    }
+                    
+                    // 使用jsQR检测二维码
+                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                        inversionAttempts: 'attemptBoth' // 尝试反色检测
+                    });
+                    
+                    if (code && (now - this.lastDetectionTime > this.detectionCooldown)) {
+                        console.log('WebXR中检测到二维码:', code.data);
+                        if (window.app) {
+                            window.app.updateDebugInfo('🎉 成功检测到二维码: ' + code.data);
+                        }
+                        this.onDetectionCallback(code.data);
+                        this.lastDetectionTime = now;
+                        
+                        // 短暂停止检测，避免重复触发
+                        this.isDetecting = false;
+                        setTimeout(() => {
+                            this.isDetecting = true;
+                            this.detectionAttempts = 0; // 重置计数
+                        }, this.detectionCooldown);
+                    }
+                    
+                } catch (error) {
+                    if (this.detectionAttempts <= 3) {
+                        console.error('WebXR二维码检测错误:', error);
+                        if (window.app) {
+                            window.app.updateDebugInfo('检测错误: ' + error.message);
+                        }
+                    }
+                }
+                
+                this.lastDetectionTime = now;
+            }
+            
+            stopDetection() {
+                this.isDetecting = false;
+                this.onDetectionCallback = null;
+                this.detectionAttempts = 0;
+                console.log('二维码检测已停止');
+                if (window.app) {
+                    window.app.updateDebugInfo('二维码检测已停止');
+                }
+            }
+        }
+        
+        // 启动应用
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('启动WebXR乐器应用...');
+            console.log('环境检查:');
+            console.log('- THREE.js版本:', THREE.REVISION);
+            console.log('- jsQR可用:', typeof jsQR !== 'undefined');
+            console.log('- WebXR可用:', !!navigator.xr);
+            console.log('- GLTFLoader可用:', typeof THREE.GLTFLoader !== 'undefined');
+            
+            try {
+                new WebXRInstrumentApp();
+            } catch (error) {
+                console.error('应用启动失败:', error);
+                document.getElementById('startContainer').innerHTML = 
+                    '<h2>❌ 启动失败</h2><p>错误: ' + error.message + '</p>' +
+                    '<button onclick="location.reload()" class="btn">重新加载</button>';
+            }
+        });
+        
+        // 全局错误处理
+        window.onerror = function(message, source, lineno, colno, error) {
+            console.error("全局错误:", {
+                message, source, lineno, colno, error
+            });
+        };
+    </script>
+</body>
+</html>

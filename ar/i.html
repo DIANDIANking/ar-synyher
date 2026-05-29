@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8"/>
+    <title>岭南乐器体验选择</title>
+    <style>
+        body {
+            margin: 0;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            font-family: 'Arial', sans-serif;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .container {
+            text-align: center;
+            max-width: 600px;
+            padding: 40px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        
+        .subtitle {
+            font-size: 1.2em;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+        
+        .mode-button {
+            display: block;
+            width: 100%;
+            padding: 20px 30px;
+            margin: 15px 0;
+            font-size: 1.1em;
+            font-weight: bold;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .ar-mode {
+            background: linear-gradient(45deg, #ff6b6b, #ee5a24);
+        }
+        
+        .ar-mode:hover {
+            background: linear-gradient(45deg, #ee5a24, #ff6b6b);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .webxr-mode {
+            background: linear-gradient(45deg, #4834d4, #686de0);
+        }
+        
+        .webxr-mode:hover {
+            background: linear-gradient(45deg, #686de0, #4834d4);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .test-mode {
+            background: linear-gradient(45deg, #00d2d3, #54a0ff);
+        }
+        
+        .test-mode:hover {
+            background: linear-gradient(45deg, #54a0ff, #00d2d3);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+        }
+        
+        .description {
+            font-size: 0.9em;
+            opacity: 0.8;
+            margin-top: 8px;
+        }
+        
+        .status {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9em;
+        }
+        
+        .icon {
+            font-size: 1.5em;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 岭南乐器体验</h1>
+        <p class="subtitle">选择您的增强现实体验模式</p>
+        
+        <a href="a.html" class="mode-button ar-mode">
+            <span class="icon">📱</span>
+            传统AR模式
+            <div class="description">
+                使用AR.js技术，精确追踪pattern标记<br>
+                模型完全跟随二维码移动、旋转、缩放
+            </div>
+        </a>
+        
+        <a href="webxr.html" class="mode-button webxr-mode">
+            <span class="icon">🥽</span>
+            WebXR模式
+            <div class="description">
+                支持VR头显设备，沉浸式3D体验<br>
+                手柄交互，空间定位，立体音效
+            </div>
+        </a>
+        
+        <a href="test.html" class="mode-button test-mode">
+            <span class="icon">🖱️</span>
+            桌面测试模式
+            <div class="description">
+                电脑浏览器测试，鼠标控制<br>
+                拖动旋转，滚轮缩放，快速预览
+            </div>
+        </a>
+    </div>
+    
+    <div class="status" id="status">
+        正在检测设备能力...
+    </div>
+
+    <script>
+        // 检测设备能力
+        document.addEventListener('DOMContentLoaded', () => {
+            let statusText = [];
+            
+            // 检测WebXR支持
+            if (navigator.xr) {
+                navigator.xr.isSessionSupported('immersive-vr').then(supported => {
+                    if (supported) {
+                        statusText.push('✅ WebXR VR支持');
+                    } else {
+                        statusText.push('❌ WebXR VR不支持');
+                    }
+                    updateStatus();
+                });
+                
+                navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+                    if (supported) {
+                        statusText.push('✅ WebXR AR支持');
+                    } else {
+                        statusText.push('❌ WebXR AR不支持');
+                    }
+                    updateStatus();
+                });
+            } else {
+                statusText.push('❌ WebXR不支持');
+                updateStatus();
+            }
+            
+            // 检测摄像头支持
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                statusText.push('✅ 摄像头支持');
+            } else {
+                statusText.push('❌ 摄像头不支持');
+            }
+            
+            function updateStatus() {
+                document.getElementById('status').textContent = statusText.join(' | ');
+            }
+            
+            updateStatus();
+        });
+
+        // 添加点击音效反馈
+        document.querySelectorAll('.mode-button').forEach(button => {
+            button.addEventListener('click', (e) => {
+                // 视觉反馈
+                button.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    button.style.transform = '';
+                }, 100);
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+以下为目录 D:\UserData\Desktop\QuestCameraKit\Unity-QuestVisionKit\Assets\Samples\3 QRCodeTracking 的结构
+📁 3 QRCodeTracking\Materials
+    📄 3 QRCodeTracking\Materials\Marker.mat
+📁 3 QRCodeTracking\Prefabs
+    📄 3 QRCodeTracking\Prefabs\Marker.prefab
+    📄 3 QRCodeTracking\Prefabs\QRCodeScanner.prefab
+📄 3 QRCodeTracking\QRCodeTracking.unity
+📁 3 QRCodeTracking\Scripts
+    📁 3 QRCodeTracking\Scripts\Editor
+        📄 3 QRCodeTracking\Scripts\Editor\ZXingDefineSymbolChecker.cs
+    📄 3 QRCodeTracking\Scripts\MarkerController.cs
+    📄 3 QRCodeTracking\Scripts\MarkerPool.cs
+    📄 3 QRCodeTracking\Scripts\QrCodeDisplayManager.cs
+    📄 3 QRCodeTracking\Scripts\QrCodeScanner.cs
+📁 3 QRCodeTracking\Shaders
+    📄 3 QRCodeTracking\Shaders\Downsample.compute
+📁 3 QRCodeTracking\Textures
+    📄 3 QRCodeTracking\Textures\marker.png
+

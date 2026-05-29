@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR码与AR码合成工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .drop-zone {
+            border: 2px dashed #cbd5e1;
+            transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+        }
+        .drop-zone.drag-over {
+            background-color: #e2e8f0;
+            border-color: #4f46e5;
+        }
+        .drop-zone-content {
+            pointer-events: none;
+        }
+        canvas {
+            cursor: grab;
+        }
+        canvas:active {
+            cursor: grabbing;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-800">
+
+    <div class="container mx-auto p-4 sm:p-6 lg:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-900">QR码与AR码合成工具</h1>
+            <p class="mt-2 text-lg text-gray-600">将您的AR图案叠加在QR码中心，并导出最终图片</p>
+        </header>
+
+        <div class="grid lg:grid-cols-2 gap-8">
+            <!-- Controls Column -->
+            <div class="bg-white p-6 rounded-2xl shadow-lg">
+                <div class="space-y-6">
+                    <!-- QR Code Upload -->
+                    <div>
+                        <h2 class="text-xl font-semibold mb-2">1. 上传QR码</h2>
+                        <div id="qr-drop-zone" class="drop-zone w-full p-6 rounded-lg text-center cursor-pointer">
+                            <div class="drop-zone-content">
+                                <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                <p class="mt-2 text-sm text-gray-600">拖拽文件到此处，或 <span class="font-medium text-indigo-600">点击上传</span></p>
+                                <p id="qr-file-name" class="mt-1 text-xs text-gray-500"></p>
+                            </div>
+                            <input type="file" id="qr-input" class="hidden" accept="image/*">
+                        </div>
+                    </div>
+
+                    <!-- AR Marker Upload -->
+                    <div>
+                        <h2 class="text-xl font-semibold mb-2">2. 上传AR码</h2>
+                        <div id="ar-drop-zone" class="drop-zone w-full p-6 rounded-lg text-center cursor-pointer">
+                            <div class="drop-zone-content">
+                               <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48" aria-hidden="true"><path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                                <p class="mt-2 text-sm text-gray-600">拖拽文件到此处，或 <span class="font-medium text-indigo-600">点击上传</span></p>
+                                <p id="ar-file-name" class="mt-1 text-xs text-gray-500"></p>
+                            </div>
+                            <input type="file" id="ar-input" class="hidden" accept="image/*">
+                        </div>
+                    </div>
+
+                    <!-- Size Control -->
+                    <div>
+                        <h2 class="text-xl font-semibold mb-2">3. 调整AR码大小</h2>
+                        <div class="flex items-center space-x-4">
+                            <input id="size-slider" type="range" min="10" max="50" value="25" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                            <span id="size-value" class="font-medium text-indigo-600 w-12 text-center">25%</span>
+                        </div>
+                        <p id="size-recommendation" class="mt-2 text-sm text-gray-600">
+                            <span class="font-semibold text-green-600">建议:</span> 保持在 <span class="font-bold">15% - 30%</span> 之间，以确保QR码可被识别。
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Download Button -->
+                <div class="mt-8">
+                    <button id="download-btn" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition disabled:bg-gray-400 disabled:cursor-not-allowed">
+                        下载合成图片
+                    </button>
+                </div>
+            </div>
+
+            <!-- Canvas/Preview Column -->
+            <div class="bg-white p-4 rounded-2xl shadow-lg flex items-center justify-center aspect-square">
+                <div id="canvas-placeholder" class="text-center text-gray-500">
+                    <p>上传图片后将在此处显示预览</p>
+                </div>
+                <canvas id="canvas" class="hidden w-full h-full rounded-lg"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // DOM Elements
+            const qrDropZone = document.getElementById('qr-drop-zone');
+            const arDropZone = document.getElementById('ar-drop-zone');
+            const qrInput = document.getElementById('qr-input');
+            const arInput = document.getElementById('ar-input');
+            const qrFileName = document.getElementById('qr-file-name');
+            const arFileName = document.getElementById('ar-file-name');
+            const sizeSlider = document.getElementById('size-slider');
+            const sizeValue = document.getElementById('size-value');
+            const sizeRecommendation = document.getElementById('size-recommendation');
+            const downloadBtn = document.getElementById('download-btn');
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            const canvasPlaceholder = document.getElementById('canvas-placeholder');
+
+            // State
+            let qrImage = null;
+            let arImage = null;
+            let arMarkerScale = 0.25; // Initial scale of AR marker relative to QR code width
+            let arMarkerOffset = { x: 0, y: 0 }; // Offset from the center in canvas pixels
+            let isDragging = false;
+            let dragStart = { x: 0, y: 0 };
+
+            // --- Setup Event Listeners ---
+            function setupEventListeners() {
+                // Click to upload
+                qrDropZone.addEventListener('click', () => qrInput.click());
+                arDropZone.addEventListener('click', () => arInput.click());
+
+                // File input change
+                qrInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0], 'qr'));
+                arInput.addEventListener('change', (e) => handleFileSelect(e.target.files[0], 'ar'));
+
+                // Drag and Drop
+                setupDragDrop(qrDropZone, 'qr');
+                setupDragDrop(arDropZone, 'ar');
+
+                // Slider
+                sizeSlider.addEventListener('input', handleSizeChange);
+
+                // Canvas Dragging
+                canvas.addEventListener('mousedown', onDragStart);
+                canvas.addEventListener('mousemove', onDragMove);
+                canvas.addEventListener('mouseup', onDragEnd);
+                canvas.addEventListener('mouseleave', onDragEnd);
+                
+                canvas.addEventListener('touchstart', onDragStart, { passive: false });
+                canvas.addEventListener('touchmove', onDragMove, { passive: false });
+                canvas.addEventListener('touchend', onDragEnd);
+                canvas.addEventListener('touchcancel', onDragEnd);
+
+                // Download
+                downloadBtn.addEventListener('click', handleDownload);
+                
+                updateUI();
+            }
+
+            function setupDragDrop(zone, type) {
+                zone.addEventListener('dragover', (e) => {
+                    e.preventDefault();
+                    zone.classList.add('drag-over');
+                });
+                zone.addEventListener('dragleave', (e) => {
+                    e.preventDefault();
+                    zone.classList.remove('drag-over');
+                });
+                zone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    zone.classList.remove('drag-over');
+                    const file = e.dataTransfer.files[0];
+                    if (file && file.type.startsWith('image/')) {
+                        handleFileSelect(file, type);
+                    }
+                });
+            }
+
+            // --- File Handling ---
+            function handleFileSelect(file, type) {
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        if (type === 'qr') {
+                            qrImage = img;
+                            qrFileName.textContent = file.name;
+                        } else {
+                            arImage = img;
+                            arFileName.textContent = file.name;
+                        }
+                        drawCanvas();
+                        updateUI();
+                    };
+                    img.src = e.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+
+            // --- Canvas Drawing ---
+            function drawCanvas() {
+                if (!qrImage) return;
+                
+                // --- MODIFICATION START: Improve Resolution and Quality ---
+                // We render the canvas at a higher resolution (e.g., 2x) and then scale it down with CSS.
+                // This is a standard technique for achieving crisp, anti-aliased graphics.
+                const scaleFactor = 2; 
+
+                // Set the canvas's internal bitmap resolution to be higher than its display size.
+                canvas.width = qrImage.width * scaleFactor;
+                canvas.height = qrImage.height * scaleFactor;
+
+                // Explicitly enable and set high-quality image smoothing.
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+                // --- MODIFICATION END ---
+                
+                // Clear canvas
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                // Draw QR code onto the high-resolution canvas.
+                ctx.drawImage(qrImage, 0, 0, canvas.width, canvas.height);
+
+                if (arImage) {
+                    // All calculations are now relative to the high-resolution canvas.
+                    const arWidth = canvas.width * arMarkerScale;
+                    const arHeight = arImage.height * (arWidth / arImage.width); // Maintain aspect ratio
+
+                    // Calculate position (center + offset) on the high-res canvas.
+                    const centerX = (canvas.width - arWidth) / 2;
+                    const centerY = (canvas.height - arHeight) / 2;
+                    
+                    // The offset is already in canvas pixels, so it scales correctly with the high-res canvas.
+                    const drawX = centerX + arMarkerOffset.x;
+                    const drawY = centerY + arMarkerOffset.y;
+
+                    // Draw AR marker.
+                    ctx.drawImage(arImage, drawX, drawY, arWidth, arHeight);
+                }
+            }
+
+            // --- UI Updates ---
+            function handleSizeChange(e) {
+                arMarkerScale = e.target.value / 100;
+                sizeValue.textContent = `${e.target.value}%`;
+
+                // Update recommendation text color
+                const val = parseInt(e.target.value);
+                if (val >= 15 && val <= 30) {
+                    sizeRecommendation.querySelector('.font-semibold').className = "font-semibold text-green-600";
+                } else {
+                    sizeRecommendation.querySelector('.font-semibold').className = "font-semibold text-red-600";
+                }
+
+                drawCanvas();
+            }
+
+            function updateUI() {
+                const ready = qrImage && arImage;
+                downloadBtn.disabled = !ready;
+                if (qrImage) {
+                    canvas.classList.remove('hidden');
+                    canvasPlaceholder.classList.add('hidden');
+                }
+            }
+            
+            // --- Dragging Logic ---
+            function getEventCoordinates(e) {
+                const rect = canvas.getBoundingClientRect();
+                if (e.touches && e.touches.length > 0) {
+                    return {
+                        x: e.touches[0].clientX - rect.left,
+                        y: e.touches[0].clientY - rect.top
+                    };
+                }
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+
+            function onDragStart(e) {
+                if (!arImage) return;
+                e.preventDefault();
+                isDragging = true;
+                const coords = getEventCoordinates(e);
+                // The drag logic correctly converts screen coordinates to canvas coordinates,
+                // so it works with the new high-resolution canvas without changes.
+                const scaleX = canvas.width / canvas.clientWidth;
+                const scaleY = canvas.height / canvas.clientHeight;
+                dragStart.x = coords.x * scaleX - arMarkerOffset.x;
+                dragStart.y = coords.y * scaleY - arMarkerOffset.y;
+            }
+
+            function onDragMove(e) {
+                if (!isDragging || !arImage) return;
+                e.preventDefault();
+                const coords = getEventCoordinates(e);
+                const scaleX = canvas.width / canvas.clientWidth;
+                const scaleY = canvas.height / canvas.clientHeight;
+
+                arMarkerOffset.x = coords.x * scaleX - dragStart.x;
+                arMarkerOffset.y = coords.y * scaleY - dragStart.y;
+                drawCanvas();
+            }
+
+            function onDragEnd() {
+                isDragging = false;
+            }
+
+            // --- Download ---
+            function handleDownload() {
+                if (!qrImage || !arImage) return;
+
+                const link = document.createElement('a');
+                link.download = 'merged-code.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            }
+
+            // Initialize
+            setupEventListeners();
+        });
+    </script>
+</body>
+</html>

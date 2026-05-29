@@ -1,3 +1,6 @@
 .DS_Store
 assets/.DS_Store
 assets/markers/.DS_Store
+ar/**/.DS_Store
+*.old
+*.new

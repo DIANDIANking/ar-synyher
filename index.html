@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>AR Mini Synth Workstation</title>
-  <link rel="stylesheet" href="./assets/style.css?v=20260527-audio-controls-v1">
+  <link rel="stylesheet" href="./assets/style.css?v=20260529-pattern-debug-v1">
   <script>
     (() => {
       const local = ["localhost", "127.0.0.1"].includes(location.hostname);
@@ -43,6 +43,11 @@
     </section>
   </main>
 
-  <script type="module" src="./assets/app.js?v=20260529-patt-binding-v8"></script>
+  <section class="pattern-debug-panel" id="pattern-debug-panel" aria-label="AR pattern 调试面板">
+    <h2>AR Pattern Debug</h2>
+    <div class="pattern-debug-list" id="pattern-debug-list">正在读取 patt...</div>
+  </section>
+
+  <script type="module" src="./assets/app.js?v=20260529-patt-debug-v9"></script>
 </body>
 </html>

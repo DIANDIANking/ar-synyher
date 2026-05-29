@@ -280,6 +280,56 @@ button {
   transform: translateX(-50%) translateY(-4px) scale(1.04);
 }
 
+.pattern-debug-panel {
+  position: fixed;
+  z-index: 40;
+  right: calc(10px + env(safe-area-inset-right));
+  bottom: calc(10px + env(safe-area-inset-bottom));
+  width: min(520px, calc(100vw - 20px));
+  max-height: min(72vh, 620px);
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid rgba(99, 230, 190, 0.42);
+  border-radius: 8px;
+  color: #dffdf3;
+  background: rgba(2, 8, 9, 0.88);
+  box-shadow: 0 16px 46px rgba(0, 0, 0, 0.52);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.pattern-debug-panel h2 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #63e6be;
+}
+
+.pattern-debug-card {
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.pattern-debug-card + .pattern-debug-card {
+  margin-top: 8px;
+}
+
+.pattern-debug-title {
+  color: #f7c24d;
+  font-weight: 900;
+}
+
+.pattern-debug-card pre {
+  max-height: 160px;
+  margin: 6px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #f4fff9;
+}
+
 .ar-stage.mode-play .stage-prompt {
   opacity: 0;
   transform: translateX(-50%) translateY(10px) scale(0.96);

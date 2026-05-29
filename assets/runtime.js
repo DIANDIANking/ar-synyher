@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-debug-v9";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v6";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-debug-v9";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v6";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -36,7 +36,6 @@ const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
 const MARKER_LOST_TIMEOUT_MS = 300;
 const PATTERN_SWITCH_MARGIN = 0.035;
-const PATTERN_SCORE_LOG_INTERVAL_MS = 650;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
 const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
@@ -180,9 +179,6 @@ let canvasBound = false;
 let drumControls = { ...DRUM_CONTROLS };
 let drumControlMeshes = new Map();
 let patternTargetsReady = null;
-let patternConfigLogged = false;
-let lastPatternScoreLogAt = 0;
-let lastShowDebugAlertKey = "";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -266,30 +262,9 @@ function setSynthActive(active) {
 }
 
 function setActiveInstrumentModel(instrumentType) {
-  activeModelGroup = instrumentType === "drum-machine"
-    ? drumGroup
-    : instrumentType === "synthesizer"
-      ? synthGroup
-      : null;
+  activeModelGroup = instrumentType === "drum-machine" ? drumGroup : synthGroup;
   if (synthGroup) synthGroup.visible = false;
   if (drumGroup) drumGroup.visible = false;
-}
-
-function debugNameForCard(cardId) {
-  return cardId === "hechengqi" ? "synth" : cardId || "none";
-}
-
-function debugNameForActiveModel() {
-  if (activeModelGroup === synthGroup) return "synth";
-  if (activeModelGroup === drumGroup) return "drum";
-  return "none";
-}
-
-function alertInstrumentShowDebug(winner, activeModelName) {
-  const key = `${winner}:${activeModelName}`;
-  if (key === lastShowDebugAlertKey) return;
-  lastShowDebugAlertKey = key;
-  window.alert(`winner=${winner} model=${activeModelName}`);
 }
 
 function resetUserTransform() {
@@ -302,67 +277,23 @@ function resetUserTransform() {
 
 function ensurePatternTargetsLoaded() {
   if (patternTargetsReady) return patternTargetsReady;
-  if (!patternConfigLogged) {
-    console.info("[AR pattern config]", getAllCardTargets().map((target, index) => ({
-      index,
-      name: target.id,
-      instrument: target.instrumentId,
-      url: target.markerResource?.markerUrl
-    })));
-    patternConfigLogged = true;
-  }
   patternTargetsReady = Promise.all(getAllCardTargets().map(async (target) => {
     const url = target.markerResource?.markerUrl;
     if (!url) return target;
-    const actualUrl = new URL(url, window.location.href).href;
     const response = await fetch(url, { cache: "no-store" });
-    if (!response.ok) {
-      updatePatternDebugPanel(target, {
-        url: actualUrl,
-        error: `HTTP ${response.status}`
-      });
-      throw new Error(`Cannot load marker pattern: ${url}`);
-    }
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    const text = new TextDecoder("utf-8").decode(bytes);
-    const hashes = await hashPatternBytes(bytes);
+    if (!response.ok) throw new Error(`Cannot load marker pattern: ${url}`);
+    const text = await response.text();
     const rotations = parsePattRotations(text);
-    if (!rotations.length) {
-      updatePatternDebugPanel(target, {
-        url: actualUrl,
-        size: bytes.byteLength,
-        ...hashes,
-        firstLines: firstPatternLines(text),
-        error: "Invalid patt"
-      });
-      throw new Error(`Invalid marker pattern: ${url}`);
-    }
-    const checksum = checksumPatternText(text);
+    if (!rotations.length) throw new Error(`Invalid marker pattern: ${url}`);
     target.patternSignature = {
       minConfidence: target.patternMatch?.minConfidence,
-      rotations,
-      checksum
+      rotations
     };
-    console.info("[AR pattern loaded]", {
-      name: target.id,
+    console.info(`[AR pattern] loaded: ${target.id}`, {
       instrument: target.instrumentId,
-      url: actualUrl,
-      size: bytes.byteLength,
-      sha1: hashes.sha1,
-      md5: hashes.md5,
-      checksum,
+      url,
       rotations: rotations.length,
       minConfidence: target.patternSignature.minConfidence
-    });
-    updatePatternDebugPanel(target, {
-      url: actualUrl,
-      size: bytes.byteLength,
-      sha1: hashes.sha1,
-      md5: hashes.md5,
-      checksum,
-      rotations: rotations.length,
-      minConfidence: target.patternSignature.minConfidence,
-      firstLines: firstPatternLines(text)
     });
     return target;
   })).catch((err) => {
@@ -371,145 +302,6 @@ function ensurePatternTargetsLoaded() {
     throw err;
   });
   return patternTargetsReady;
-}
-
-function firstPatternLines(text) {
-  return String(text).split(/\r?\n/).slice(0, 20).join("\n");
-}
-
-async function hashPatternBytes(bytes) {
-  const sha1 = await digestHex("SHA-1", bytes);
-  const md5 = md5Hex(bytes);
-  return { sha1, md5 };
-}
-
-async function digestHex(algorithm, bytes) {
-  const hash = await crypto.subtle.digest(algorithm, bytes);
-  return bytesToHex(new Uint8Array(hash));
-}
-
-function bytesToHex(bytes) {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-const MD5_S = [
-  7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-  5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
-  4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
-  6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
-];
-
-const MD5_K = Array.from({ length: 64 }, (_, index) => (
-  Math.floor(Math.abs(Math.sin(index + 1)) * 0x100000000) >>> 0
-));
-
-function md5Hex(inputBytes) {
-  const bytes = inputBytes instanceof Uint8Array ? inputBytes : new Uint8Array(inputBytes);
-  const bitLength = bytes.length * 8;
-  const paddedLength = (((bytes.length + 9 + 63) >> 6) << 6);
-  const buffer = new Uint8Array(paddedLength);
-  buffer.set(bytes);
-  buffer[bytes.length] = 0x80;
-  const view = new DataView(buffer.buffer);
-  view.setUint32(paddedLength - 8, bitLength >>> 0, true);
-  view.setUint32(paddedLength - 4, Math.floor(bitLength / 0x100000000), true);
-
-  let a0 = 0x67452301;
-  let b0 = 0xefcdab89;
-  let c0 = 0x98badcfe;
-  let d0 = 0x10325476;
-
-  for (let chunk = 0; chunk < paddedLength; chunk += 64) {
-    const words = [];
-    for (let index = 0; index < 16; index += 1) {
-      words[index] = view.getUint32(chunk + index * 4, true);
-    }
-    let a = a0;
-    let b = b0;
-    let c = c0;
-    let d = d0;
-    for (let index = 0; index < 64; index += 1) {
-      let f;
-      let g;
-      if (index < 16) {
-        f = (b & c) | (~b & d);
-        g = index;
-      } else if (index < 32) {
-        f = (d & b) | (~d & c);
-        g = (5 * index + 1) % 16;
-      } else if (index < 48) {
-        f = b ^ c ^ d;
-        g = (3 * index + 5) % 16;
-      } else {
-        f = c ^ (b | ~d);
-        g = (7 * index) % 16;
-      }
-      const temp = d;
-      d = c;
-      c = b;
-      b = (b + rotateLeft((a + f + MD5_K[index] + words[g]) >>> 0, MD5_S[index])) >>> 0;
-      a = temp;
-    }
-    a0 = (a0 + a) >>> 0;
-    b0 = (b0 + b) >>> 0;
-    c0 = (c0 + c) >>> 0;
-    d0 = (d0 + d) >>> 0;
-  }
-
-  const output = new Uint8Array(16);
-  const outputView = new DataView(output.buffer);
-  outputView.setUint32(0, a0, true);
-  outputView.setUint32(4, b0, true);
-  outputView.setUint32(8, c0, true);
-  outputView.setUint32(12, d0, true);
-  return bytesToHex(output);
-}
-
-function rotateLeft(value, bits) {
-  return (value << bits) | (value >>> (32 - bits));
-}
-
-function updatePatternDebugPanel(target, info) {
-  const list = $("#pattern-debug-list");
-  if (!list) return;
-  const current = window.__patternDebugInfo || {};
-  current[target.id] = { target, info };
-  window.__patternDebugInfo = current;
-  list.innerHTML = getAllCardTargets().map((item, index) => {
-    const entry = current[item.id];
-    const details = entry?.info;
-    if (!details) {
-      return `<article class="pattern-debug-card"><div class="pattern-debug-title">index=${index} name=${item.id}</div><div>url=${new URL(item.markerResource?.markerUrl || "", window.location.href).href}</div><div>loading...</div></article>`;
-    }
-    return `<article class="pattern-debug-card">
-      <div class="pattern-debug-title">index=${index} name=${item.id} instrument=${item.instrumentId}</div>
-      <div>url=${escapeHtml(details.url || "")}</div>
-      <div>size=${details.size ?? "ERR"}</div>
-      <div>sha1=${escapeHtml(details.sha1 || "ERR")}</div>
-      <div>md5=${escapeHtml(details.md5 || "ERR")}</div>
-      <div>checksum=${escapeHtml(details.checksum || "ERR")}</div>
-      <div>rotations=${details.rotations ?? "ERR"} min=${details.minConfidence ?? "ERR"}</div>
-      ${details.error ? `<div>error=${escapeHtml(details.error)}</div>` : ""}
-      <pre>${escapeHtml(details.firstLines || "")}</pre>
-    </article>`;
-  }).join("");
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
-
-function checksumPatternText(text) {
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash.toString(16).padStart(8, "0");
 }
 
 function parsePattRotations(text) {
@@ -790,11 +582,7 @@ async function playDrumMachinePad(options = {}) {
 }
 
 function activateInstrumentMarker(details = {}) {
-  const config = details.markerResource;
-  if (!config?.cardId) {
-    console.warn("[AR show] ignored: missing explicit marker resource", details);
-    return;
-  }
+  const config = details.markerResource || synthMarkerBinding;
   const alreadyActive = window.activeInstrument?.cardId === config.cardId;
   if (window.activeInstrument?.cardId !== config.cardId) {
     const isDrum = config.instrumentType === "drum-machine";
@@ -802,10 +590,6 @@ function activateInstrumentMarker(details = {}) {
       instrument: config.instrumentType,
       source: details.source,
       recognizedText: details.recognizedText
-    });
-    console.info("[AR show]", {
-      instrument: config.cardId,
-      type: config.instrumentType
     });
     window.activeInstrument = {
       ...config,
@@ -825,7 +609,6 @@ function deactivateInstrumentMarker() {
     });
     window.activeInstrument = null;
   }
-  lastShowDebugAlertKey = "";
   setActiveInstrumentModel(null);
   document.body.classList.remove("synthesizer-active");
 }
@@ -2262,8 +2045,7 @@ function scanTextCardMarker() {
   const imageData = scanner.ctx.getImageData(0, 0, width, height);
   const frame = { imageData, width, height };
   const pose = detectAnyCardPoseFromFrame(frame);
-  if (!pose) return handleMarkerMiss(PROMPT_FIND_CARD);
-  const cardId = pose.cardId;
+  const cardId = pose?.cardId || REQUIRED_CARD_ID;
   const cardTarget = getCardTarget(cardId);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
     payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
@@ -2290,10 +2072,8 @@ function handleMarkerMiss(promptText) {
 
 function detectAnyCardPoseFromFrame(frame) {
   const hits = [];
-  const scores = {};
   for (const target of getAllCardTargets()) {
     const pose = detectCardPoseFromFrame(target, frame);
-    scores[target.id] = Number((pose?.patternConfidence || 0).toFixed(4));
     if (!pose) continue;
     hits.push({
       score: pose.patternConfidence || 0,
@@ -2306,10 +2086,7 @@ function detectAnyCardPoseFromFrame(frame) {
       }
     });
   }
-  if (!hits.length) {
-    logPatternScores(scores, null);
-    return null;
-  }
+  if (!hits.length) return null;
   hits.sort((a, b) => b.score - a.score);
   const [best, runnerUp] = hits;
   if (runnerUp && best.score - runnerUp.score < PATTERN_SWITCH_MARGIN) {
@@ -2319,22 +2096,9 @@ function detectAnyCardPoseFromFrame(frame) {
       runnerUp: runnerUp.pose.cardId,
       runnerUpScore: runnerUp.score
     });
-    logPatternScores(scores, null);
     return null;
   }
-  logPatternScores(scores, best.pose.cardId);
   return best.pose;
-}
-
-function logPatternScores(scores, winner) {
-  const now = performance.now();
-  if (now - lastPatternScoreLogAt < PATTERN_SCORE_LOG_INTERVAL_MS) return;
-  lastPatternScoreLogAt = now;
-  console.info("[AR score]", {
-    hechengqi: scores.hechengqi ?? 0,
-    drum: scores.drum ?? 0,
-    winner: winner || null
-  });
 }
 
 function mapVideoPointToStage(point, scanScale) {
@@ -2512,10 +2276,7 @@ function updateMarkerFromPose(pose, scanScale, details) {
   };
   lastCardPoseScan = pose;
   activateInstrumentMarker(details);
-  if (activeModelGroup) {
-    activeModelGroup.visible = true;
-    alertInstrumentShowDebug(debugNameForCard(details.cardId), debugNameForActiveModel());
-  }
+  if (activeModelGroup) activeModelGroup.visible = true;
   setSynthActive(true);
   restoreOutputForMarkerFound();
   setPrompt(details.instrumentType === "drum-machine" ? "QR Drum Machine" : "AR Mini Synth Workstation");
@@ -2682,9 +2443,6 @@ function init() {
   setStageWaiting(true);
   setPrompt("请允许相机");
   showWelcome();
-  ensurePatternTargetsLoaded().catch((err) => {
-    console.error("[AR pattern] startup debug load failed", err);
-  });
 }
 
 if (document.readyState === "loading") {

@@ -2737,44 +2737,33 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         const camera = scene.camera;
         if (!camera) return null;
 
-        // 全面更新所有世界矩阵
+        // 更新所有世界矩阵：AR.js追踪姿态 + pinch缩放 + 模型层级
         scene.object3D.updateMatrixWorld();
-        camera.updateMatrixWorld();
 
-        // 使用系统安全的 NDC 映射：优先用 canvas 尺寸，兜底用 window 尺寸
-        const canvas = scene.canvas;
-        const cw = (canvas && canvas.clientWidth) || window.innerWidth;
-        const ch = (canvas && canvas.clientHeight) || window.innerHeight;
-        const cl = (canvas && canvas.getBoundingClientRect().left) || 0;
-        const ct = (canvas && canvas.getBoundingClientRect().top) || 0;
-        const mouse = new THREE.Vector2(
-            ((pointer.x - cl) / cw) * 2 - 1,
-            -((pointer.y - ct) / ch) * 2 + 1
-        );
+        // NDC：用 window 尺寸（AR 嵌入式场景全屏）
+        var mx = (pointer.x / window.innerWidth) * 2 - 1;
+        var my = -(pointer.y / window.innerHeight) * 2 + 1;
 
-        // AR.js 使用 THREE.Camera，setFromCamera 需要 isPerspectiveCamera=true
-        // 临时标记以使用 Three.js 内置的射线投射
-        const wasPC = camera.isPerspectiveCamera;
-        if (!wasPC) camera.isPerspectiveCamera = true;
-        try {
-            this.raycaster.setFromCamera(mouse, camera);
-        } finally {
-            if (!wasPC) camera.isPerspectiveCamera = false;
+        // 手动构造射线（兼容 AR.js 的 THREE.Camera，不用 setFromCamera）
+        var ndc3 = new THREE.Vector3(mx, my, 0.5);
+        ndc3.unproject(camera);
+        var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+        var dir = ndc3.clone().sub(origin).normalize();
+        this.raycaster.set(origin, dir);
+
+        // 递归收集 group 下所有带 userData.interaction 的 mesh
+        var all = [];
+        function collect(obj) {
+            if (obj.userData && obj.userData.interaction) all.push(obj);
+            if (obj.children) for (var i = 0; i < obj.children.length; i++) collect(obj.children[i]);
         }
+        if (this.group) collect(this.group);
 
-        // 递归遍历 group 内所有子孙查找带 userData.interaction 的交互物体
-        const collectInteractives = (obj, out) => {
-            if (obj.userData && obj.userData.interaction) out.push(obj);
-            if (obj.children) obj.children.forEach(c => collectInteractives(c, out));
-        };
-        const all = [];
-        if (this.group) collectInteractives(this.group, all);
-
-        const hits = this.raycaster.intersectObjects(all, false);
-        for (let i = 0; i < hits.length; i++) {
-            const obj = hits[i].object;
-            const interaction = obj.userData && obj.userData.interaction;
-            if (interaction) return { object: obj, interaction: interaction, point: hits[i].point };
+        var hits = this.raycaster.intersectObjects(all, false);
+        for (var i = 0; i < hits.length; i++) {
+            var obj = hits[i].object;
+            var inter = obj.userData && obj.userData.interaction;
+            if (inter) return { object: obj, interaction: inter, point: hits[i].point };
         }
         return null;
     },
@@ -2782,29 +2771,30 @@ AFRAME.registerComponent('runtime-synth-workstation', {
     handlePointerDown: function (evt) {
         if (!this.el.getAttribute('visible')) return;
         if (modelGestureMode !== 'interact') return;
-        const hit = this.raycastInteractives(evt);
+        var hit = this.raycastInteractives(evt);
         if (!hit) return;
-        const { object, interaction } = hit;
+        var object = hit.object;
+        var interaction = hit.interaction;
         evt.stopPropagation();
         if (evt.preventDefault) evt.preventDefault();
         runtimeControlPointerActive = true;
         this.pointerHandledUntil = Date.now() + 500;
-        const pointer = getRuntimeEventPointer(evt);
-        const pointerId = getRuntimePointerId(evt);
+        var pointer = getRuntimeEventPointer(evt);
+        var pointerId = getRuntimePointerId(evt);
 
         if (interaction.kind === 'preset') return this.selectPreset(interaction.id);
         if (interaction.kind === 'wave') return this.selectWave(interaction.id);
         if (interaction.kind === 'performance') {
-            const key = interaction.id.toLowerCase();
+            var key = interaction.id.toLowerCase();
             runtimeSynthState[key] = !runtimeSynthState[key];
             setRuntimeButtonActive(object, runtimeSynthState[key], 0x63e6be);
-            this.updateScreen(runtimeSynthState.preset, runtimeSynthState.waveId, `${interaction.id} ${runtimeSynthState[key] ? 'ON' : 'OFF'}`);
+            this.updateScreen(runtimeSynthState.preset, runtimeSynthState.waveId, interaction.id + ' ' + (runtimeSynthState[key] ? 'ON' : 'OFF'));
             return;
         }
         if (interaction.kind === 'octave') {
             flashRuntimeMesh(object, true);
             this.shiftOctave(interaction.semitoneDelta);
-            setTimeout(() => flashRuntimeMesh(object, false), 110);
+            setTimeout(function () { flashRuntimeMesh(object, false); }, 110);
             return;
         }
         if (interaction.kind === 'key') {
@@ -2814,7 +2804,7 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         }
         if (interaction.kind === 'knob' || interaction.kind === 'fader' || interaction.kind === 'strip') {
             this.dragState = {
-                interaction,
+                interaction: interaction,
                 lastX: pointer.x,
                 lastY: pointer.y,
                 totalX: 0,
@@ -2828,31 +2818,24 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         if (!this.el.getAttribute('visible')) { this.dragState = null; return; }
         if (!this.dragState) return;
         if (evt.preventDefault) evt.preventDefault();
-        const pointer = getRuntimeEventPointer(evt);
-        const dx = pointer.x - this.dragState.lastX;
-        const dy = pointer.y - this.dragState.lastY;
+        var pointer = getRuntimeEventPointer(evt);
+        var dx = pointer.x - this.dragState.lastX;
+        var dy = pointer.y - this.dragState.lastY;
         this.dragState.lastX = pointer.x;
         this.dragState.lastY = pointer.y;
         this.dragState.totalX += dx;
         this.dragState.totalY += dy;
         if (Math.abs(this.dragState.totalX) + Math.abs(this.dragState.totalY) > 3) this.dragState.moved = true;
-        const delta = this.dragState.interaction.kind === 'strip' ? (-dy / 160) : (((-dy) + dx * 0.45) / 180);
+        var delta = this.dragState.interaction.kind === 'strip' ? (-dy / 160) : (((-dy) + dx * 0.45) / 180);
         this.updateContinuousControl(this.dragState.interaction, delta);
     },
 
     handlePointerUp: function (evt) {
         runtimeControlPointerActive = false;
-        const pointerId = getRuntimePointerId(evt);
+        var pointerId = getRuntimePointerId(evt);
         pointerUp(pointerId);
         if (this.activeKeys) {
             this.activeKeys.delete(pointerId);
-            // 安全兜底：如果通过 pointerId 没匹配到活跃按键，强制释放所有发声
-            if (this.activeKeys.size > 0 && !activePointers.has(pointerId)) {
-                this.activeKeys.forEach((obj, pid) => {
-                    pointerUp(pid);
-                });
-                this.activeKeys.clear();
-            }
         }
         if (this.dragState) {
             this.dragState = null;

@@ -2732,32 +2732,39 @@ AFRAME.registerComponent('runtime-synth-workstation', {
     },
 
     raycastInteractives: function (evt) {
-        const pointer = getRuntimeEventPointer(evt);
-        const scene = this.el.sceneEl;
-        const camera = scene.camera;
+        var pointer = getRuntimeEventPointer(evt);
+        var scene = this.el.sceneEl;
+        var camera = scene.camera;
         if (!camera) return null;
 
-        // 更新所有世界矩阵：AR.js追踪姿态 + pinch缩放 + 模型层级
+        // 刷新场景内所有世界矩阵（AR.js追踪 + pinch缩放 + 模型层级）
         scene.object3D.updateMatrixWorld();
 
-        // NDC：用 window 尺寸（AR 嵌入式场景全屏）
-        var mx = (pointer.x / window.innerWidth) * 2 - 1;
-        var my = -(pointer.y / window.innerHeight) * 2 + 1;
+        // NDC：用 canvas 实际尺寸在视口中的位置做精确映射
+        var canvas = scene.canvas;
+        var rect = canvas ? canvas.getBoundingClientRect() : null;
+        var cw = (rect && rect.width) || window.innerWidth;
+        var ch = (rect && rect.height) || window.innerHeight;
+        var cl = (rect && rect.left) || 0;
+        var ct = (rect && rect.top) || 0;
+        var mx = ((pointer.x - cl) / cw) * 2 - 1;
+        var my = -((pointer.y - ct) / ch) * 2 + 1;
 
-        // 手动构造射线（兼容 AR.js 的 THREE.Camera，不用 setFromCamera）
+        // 手动 unproject（兼容 AR.js 的 THREE.Camera）
         var ndc3 = new THREE.Vector3(mx, my, 0.5);
         ndc3.unproject(camera);
         var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
         var dir = ndc3.clone().sub(origin).normalize();
         this.raycaster.set(origin, dir);
 
-        // 递归收集 group 下所有带 userData.interaction 的 mesh
+        // 递归收集 this.group 下全部交互 mesh
         var all = [];
-        function collect(obj) {
+        function walk(obj) {
             if (obj.userData && obj.userData.interaction) all.push(obj);
-            if (obj.children) for (var i = 0; i < obj.children.length; i++) collect(obj.children[i]);
+            var kids = obj.children;
+            if (kids) for (var i = 0; i < kids.length; i++) walk(kids[i]);
         }
-        if (this.group) collect(this.group);
+        if (this.group) walk(this.group);
 
         var hits = this.raycaster.intersectObjects(all, false);
         for (var i = 0; i < hits.length; i++) {

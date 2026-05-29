@@ -2741,14 +2741,17 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         scene.object3D.updateMatrixWorld();
 
         // NDC：用 canvas 实际尺寸在视口中的位置做精确映射
+        // AR.js 相机画面坐标与屏幕触摸坐标存在镜像关系，需要翻转 X/Y
         var canvas = scene.canvas;
         var rect = canvas ? canvas.getBoundingClientRect() : null;
         var cw = (rect && rect.width) || window.innerWidth;
         var ch = (rect && rect.height) || window.innerHeight;
         var cl = (rect && rect.left) || 0;
         var ct = (rect && rect.top) || 0;
-        var mx = ((pointer.x - cl) / cw) * 2 - 1;
-        var my = -((pointer.y - ct) / ch) * 2 + 1;
+        var nx = ((pointer.x - cl) / cw);  // 0..1 从左到右
+        var ny = ((pointer.y - ct) / ch);  // 0..1 从上到下
+        var mx = 1 - nx * 2;               // 左→右 变 右→左（镜像X）
+        var my = ny * 2 - 1;               // 上→下 变 下→上（镜像Y）
 
         // 手动 unproject（兼容 AR.js 的 THREE.Camera）
         var ndc3 = new THREE.Vector3(mx, my, 0.5);

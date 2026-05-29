@@ -1910,6 +1910,8 @@ function updateTransformGesture() {
   const distance = Math.max(1, pointerDistance(a, b));
   const ratio = distance / transformGesture.startDistance;
   userTransform.scale = clamp(transformGesture.startScale * ratio, USER_SCALE_LIMITS.min, USER_SCALE_LIMITS.max);
+  // 缩放后立即同步世界矩阵，确保后续命中检测使用最新姿态
+  if (activeModelGroup) activeModelGroup.updateMatrixWorld(true);
   updateDisplay(state.currentPreset, state.currentWave, `SCALE ${Math.round(userTransform.scale * 100)}`);
 }
 

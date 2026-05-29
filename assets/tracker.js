@@ -65,6 +65,8 @@ export function detectCardPoseFromFrame(cardTarget, frame = null) {
 
 function detectOuterPatternMarkerPose(cardTarget, frame) {
   if (!cardTarget?.patternSignature?.rotations?.length) return null;
+  // Pure Chinese text markers are usable, but less stable than asymmetric bold icon markers.
+  // If recognition remains shaky, redesign the card art and regenerate its .patt file.
   const panel = cardTarget?.textPanel || { x: 0.30, y: 0.30, w: 0.40, h: 0.40 };
   let best = null;
   for (const candidate of findOuterDarkMarkerCandidates(frame)) {

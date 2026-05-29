@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v4";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v5";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v4";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v5";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -34,7 +34,8 @@ const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
-const MARKER_LOST_TIMEOUT_MS = 220;
+const MARKER_LOST_TIMEOUT_MS = 300;
+const PATTERN_SWITCH_MARGIN = 0.035;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
 const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
@@ -282,12 +283,21 @@ function ensurePatternTargetsLoaded() {
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`Cannot load marker pattern: ${url}`);
     const text = await response.text();
+    const rotations = parsePattRotations(text);
+    if (!rotations.length) throw new Error(`Invalid marker pattern: ${url}`);
     target.patternSignature = {
       minConfidence: target.patternMatch?.minConfidence,
-      rotations: parsePattRotations(text)
+      rotations
     };
+    console.info(`[AR pattern] loaded: ${target.id}`, {
+      instrument: target.instrumentId,
+      url,
+      rotations: rotations.length,
+      minConfidence: target.patternSignature.minConfidence
+    });
     return target;
   })).catch((err) => {
+    console.error("[AR pattern] load failed", err);
     patternTargetsReady = null;
     throw err;
   });
@@ -576,6 +586,11 @@ function activateInstrumentMarker(details = {}) {
   const alreadyActive = window.activeInstrument?.cardId === config.cardId;
   if (window.activeInstrument?.cardId !== config.cardId) {
     const isDrum = config.instrumentType === "drum-machine";
+    console.info(`markerFound: ${config.cardId}`, {
+      instrument: config.instrumentType,
+      source: details.source,
+      recognizedText: details.recognizedText
+    });
     window.activeInstrument = {
       ...config,
       initAudioEngine: isDrum ? initDrumMachine : initSynthesizer,
@@ -589,6 +604,9 @@ function activateInstrumentMarker(details = {}) {
 
 function deactivateInstrumentMarker() {
   if (window.activeInstrument) {
+    console.info(`markerLost: ${window.activeInstrument.cardId}`, {
+      instrument: window.activeInstrument.instrumentType
+    });
     window.activeInstrument = null;
   }
   setActiveInstrumentModel(null);
@@ -2053,27 +2071,34 @@ function handleMarkerMiss(promptText) {
 }
 
 function detectAnyCardPoseFromFrame(frame) {
-  let best = null;
+  const hits = [];
   for (const target of getAllCardTargets()) {
     const pose = detectCardPoseFromFrame(target, frame);
     if (!pose) continue;
-    const score = (pose.patternConfidence || 0) * 0.86
-      + (pose.glyphConfidence || 0) * 0.08
-      + (pose.wholeCardConfidence || 0) * 0.06;
-    if (!best || score > best.score) {
-      best = {
-        score,
-        pose: {
-          ...pose,
-          cardId: target.id,
-          resolvedInstrument: target.resolvedInstrument || target.instrumentId,
-          recognizedText: target.recognizedText || target.title,
-          decodedPayload: target.encodedPayload || pose.decodedPayload
-        }
-      };
-    }
+    hits.push({
+      score: pose.patternConfidence || 0,
+      pose: {
+        ...pose,
+        cardId: target.id,
+        resolvedInstrument: target.resolvedInstrument || target.instrumentId,
+        recognizedText: target.recognizedText || target.title,
+        decodedPayload: target.encodedPayload || pose.decodedPayload
+      }
+    });
   }
-  return best?.pose || null;
+  if (!hits.length) return null;
+  hits.sort((a, b) => b.score - a.score);
+  const [best, runnerUp] = hits;
+  if (runnerUp && best.score - runnerUp.score < PATTERN_SWITCH_MARGIN) {
+    console.warn("[AR pattern] ambiguous match ignored", {
+      best: best.pose.cardId,
+      bestScore: best.score,
+      runnerUp: runnerUp.pose.cardId,
+      runnerUpScore: runnerUp.score
+    });
+    return null;
+  }
+  return best.pose;
 }
 
 function mapVideoPointToStage(point, scanScale) {

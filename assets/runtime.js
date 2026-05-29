@@ -1889,8 +1889,11 @@ function bindCanvasEvents(canvas) {
     const ch = canvas.clientHeight || window.innerHeight;
     const cl = canvas.getBoundingClientRect().left || 0;
     const ct = canvas.getBoundingClientRect().top || 0;
-    pointer.x = ((event.clientX - cl) / cw) * 2 - 1;
-    pointer.y = -(((event.clientY - ct) / ch) * 2 - 1);
+    const nx = (event.clientX - cl) / cw;
+    const ny = (event.clientY - ct) / ch;
+    // 相机镜像画面，X轴翻转
+    pointer.x = 1 - nx * 2;
+    pointer.y = -(ny * 2 - 1);
     camera.updateMatrixWorld();
     scene.updateMatrixWorld();
     raycaster.setFromCamera(pointer, camera);

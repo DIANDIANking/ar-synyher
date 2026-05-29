@@ -188,39 +188,31 @@ button {
     linear-gradient(180deg, rgba(19, 25, 27, 0.94), rgba(4, 6, 9, 0.98));
 }
 
-.camera-feed {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  display: block;
-  object-fit: cover;
-  opacity: 0;
-  transition: opacity 160ms ease;
-}
-
-.ar-stage.camera-active .camera-feed {
-  opacity: 0.84;
-}
-
-#synth-canvas,
-#guitar-canvas {
+/* A-Frame canvas — overlay on the AR stage */
+#ar-scene {
   position: absolute;
   inset: 0;
   z-index: 1;
   width: 100%;
   height: 100%;
-  display: block;
   touch-action: none;
-  opacity: 1;
-  transition: opacity 260ms ease;
 }
 
-.ar-stage.awaiting-camera #synth-canvas,
-.ar-stage.awaiting-camera #guitar-canvas {
+#ar-scene.active {
+  display: block;
+}
+
+.ar-stage.awaiting-camera #ar-scene {
   opacity: 0;
   pointer-events: none;
+}
+
+/* Override A-Frame's default canvas to be transparent for AR background */
+#ar-scene canvas.a-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .stage-hud {

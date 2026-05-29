@@ -1,8 +1,5 @@
-import * as THREE from "./three.js?v=20260529-no-access-v1";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-no-access-v1";
-import { createEmptyAnchor } from "./anchor.js?v=20260529-no-access-v1";
-import { hasCameraSupport, needsHttps } from "./camera.js?v=20260529-no-access-v1";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-no-access-v1";
+import * as THREE from "./three.js?v=20260529-arjs-v1";
+import { markerResourceMap, getMarkerResource } from "./cards.js?v=20260529-arjs-v1";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -31,25 +28,12 @@ const FADERS = [
 const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-const BUILD_ID = "20260529-no-access-v1";
+const BUILD_ID = "20260529-arjs-v1";
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
-const MARKER_SCAN_INTERVAL = 0;
-const MARKER_LOST_TIMEOUT_MS = 500;
-const PATTERN_SWITCH_MARGIN = 0.035;
-const BLUE_CARD_THRESHOLD = 0.03;
-const REQUIRED_IMAGE_TRACK_CORNERS = 4;
-const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
-const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
-const REQUIRED_FOUND_FRAMES = 1;
-const MARKER_CANDIDATE_RESET_MS = 420;
 const MIN_SYNTH_NOTE_HOLD_MS = 230;
 const MIN_BASS_NOTE_HOLD_MS = 280;
 const FIXED_SYNTH_SCALE = 2.5;
-const MARKER_REFERENCE_SIZE = 0.36;
-const MARKER_REFERENCE_DISTANCE = 6.1;
-const MARKER_MIN_DISTANCE = 2.35;
-const MARKER_MAX_DISTANCE = 12.5;
 const USER_SCALE_LIMITS = {
   min: 0.85,
   max: 3.4
@@ -112,17 +96,8 @@ const state = {
   faders: Object.fromEntries(FADERS.map((item) => [item.id, item.value])),
   marker: {
     locked: false,
-    payload: "",
     cardId: REQUIRED_CARD_ID,
-    instrumentType: null,
-    lastSeenAt: 0,
-    poseMatrix: null,
-    centerX: 0.5,
-    centerY: 0.52,
-    size: 0.24,
-    angle: 0,
-    tiltX: 0,
-    tiltY: 0
+    instrumentType: null
   },
   lastFreq: null
 };
@@ -137,12 +112,6 @@ const ui = {
   strips: new Map()
 };
 
-let cameraStream = null;
-let cameraStarting = false;
-let markerFrame = 0;
-let lastScanAt = 0;
-let scanCanvas = null;
-let scanCtx = null;
 let scene = null;
 let camera = null;
 let renderer = null;
@@ -153,10 +122,6 @@ let screenMaterial = null;
 let drumScreenMaterial = null;
 let raycaster = null;
 let pointer = null;
-let anchor = createEmptyAnchor();
-let lastCardPoseScan = null;
-let foundFrameCount = 0;
-let lastCandidateAt = 0;
 let interactives = [];
 let activePointers = new Map();
 let activeTouchPoints = new Map();
@@ -181,21 +146,148 @@ let activeVoices = new Map();
 let canvasBound = false;
 let drumControls = { ...DRUM_CONTROLS };
 let drumControlMeshes = new Map();
-let patternTargetsReady = null;
 const arDebugState = {
   BUILD_ID,
   markerFound: false,
-  poseFound: false,
-  pattWinner: "none",
-  blueRatio: "0.0000",
   classifiedIdentity: "none",
-  finalIdentity: "none",
   shownModel: "none",
   "drumModel.visible": false,
-  "synthModel.visible": false,
-  poseUpdated: false
+  "synthModel.visible": false
 };
 
+// Expose scale info globally so the A-Frame component can access it
+window.__arModelScale = () => FIXED_SYNTH_SCALE * (userTransform?.scale || 1);
+
+// ============================================================
+// A-Frame component: instrument-marker
+// Bridges AR.js marker events to the existing THREE.js code
+// ============================================================
+AFRAME.registerComponent("instrument-marker", {
+  schema: {
+    instrument: { type: "string", default: "synth" }
+  },
+  init: function () {
+    this.modelGroup = null;
+    this.isMarkerFound = false;
+    this.cardId = this.data.instrument === "drum" ? "drum" : "hechengqi";
+    this.markerResource = this.data.instrument === "drum" ? drumMarkerBinding : synthMarkerBinding;
+
+    this.el.addEventListener("markerFound", () => this.onFound());
+    this.el.addEventListener("markerLost", () => this.onLost());
+  },
+  onFound: function () {
+    this.isMarkerFound = true;
+    onMarkerFound(this.cardId, this.markerResource);
+  },
+  onLost: function () {
+    this.isMarkerFound = false;
+    onMarkerLost();
+  },
+  tick: function () {
+    if (!this.isMarkerFound || !this.modelGroup) return;
+    this.el.object3D.updateMatrixWorld();
+    const m = this.el.object3D.matrixWorld;
+    const pos = new THREE.Vector3();
+    const quat = new THREE.Quaternion();
+    const scl = new THREE.Vector3();
+    m.decompose(pos, quat, scl);
+
+    // Apply model scale from global config + user pinch gesture
+    const modelScale = window.__arModelScale ? window.__arModelScale() : FIXED_SYNTH_SCALE;
+    this.modelGroup.matrix.compose(
+      pos,
+      quat,
+      new THREE.Vector3(modelScale, modelScale, modelScale)
+    );
+    this.modelGroup.matrixAutoUpdate = false;
+    this.modelGroup.matrixWorldNeedsUpdate = true;
+  }
+});
+
+// ============================================================
+// Marker event handlers (called from A-Frame component)
+// ============================================================
+function onMarkerFound(cardId, markerResource) {
+  const config = markerResource || synthMarkerBinding;
+  const alreadyActive = window.activeInstrument?.cardId === config.cardId;
+  state.marker.locked = true;
+  state.marker.cardId = cardId;
+  state.marker.instrumentType = config.instrumentType;
+
+  if (!alreadyActive) {
+    const isDrum = config.instrumentType === "drum-machine";
+    console.info(`markerFound: ${config.cardId}`, {
+      instrument: config.instrumentType
+    });
+    window.activeInstrument = {
+      ...config,
+      initAudioEngine: isDrum ? initDrumMachine : initSynthesizer,
+      play: isDrum ? playDrumMachinePad : playSynthesizerNote
+    };
+    document.body.classList.add("synthesizer-active");
+  }
+  setActiveInstrumentModel(config.instrumentType);
+  if (!alreadyActive) window.activeInstrument.initAudioEngine?.();
+  if (activeModelGroup) activeModelGroup.visible = true;
+  setSynthActive(true);
+  restoreOutputForMarkerFound();
+  setPrompt(config.instrumentType === "drum-machine" ? "QR Drum Machine" : "AR Mini Synth Workstation");
+  updateArDebug({
+    markerFound: true,
+    classifiedIdentity: cardId === "drum" ? "drum" : "synth",
+    shownModel: cardId === "drum" ? "drum" : "synth",
+    "drumModel.visible": cardId === "drum",
+    "synthModel.visible": cardId !== "drum"
+  });
+}
+
+function onMarkerLost() {
+  if (window.activeInstrument) {
+    console.info(`markerLost: ${window.activeInstrument.cardId}`, {
+      instrument: window.activeInstrument.instrumentType
+    });
+  }
+  state.marker.locked = false;
+  cancelActiveControlPointers();
+  muteOutputForMarkerLoss();
+  window.activeInstrument = null;
+  document.body.classList.remove("synthesizer-active");
+  setActiveInstrumentModel(null);
+  if (synthGroup) synthGroup.visible = false;
+  if (drumGroup) drumGroup.visible = false;
+  setSynthActive(false);
+  setPrompt(PROMPT_FIND_CARD);
+  updateArDebug({
+    markerFound: false,
+    classifiedIdentity: "none",
+    shownModel: "none",
+    "drumModel.visible": false,
+    "synthModel.visible": false
+  });
+}
+
+function setActiveInstrumentModel(instrumentType) {
+  activeModelGroup = instrumentType === "drum-machine"
+    ? drumGroup
+    : instrumentType === "synthesizer"
+      ? synthGroup
+      : null;
+  if (synthGroup) synthGroup.visible = false;
+  if (drumGroup) drumGroup.visible = false;
+  // Update model group references on marker components
+  const synthMarker = document.getElementById("marker-synth");
+  const drumMarker = document.getElementById("marker-drum");
+  if (synthMarker?.components?.["instrument-marker"]) {
+    synthMarker.components["instrument-marker"].modelGroup = synthGroup;
+  }
+  if (drumMarker?.components?.["instrument-marker"]) {
+    drumMarker.components["instrument-marker"].modelGroup = drumGroup;
+  }
+}
+
+// ============================================================
+// Utility functions
+// ============================================================
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -277,16 +369,6 @@ function setSynthActive(active) {
   $("#ar-stage")?.classList.toggle("mode-play", active);
 }
 
-function setActiveInstrumentModel(instrumentType) {
-  activeModelGroup = instrumentType === "drum-machine"
-    ? drumGroup
-    : instrumentType === "synthesizer"
-      ? synthGroup
-      : null;
-  if (synthGroup) synthGroup.visible = false;
-  if (drumGroup) drumGroup.visible = false;
-}
-
 function resetUserTransform() {
   userTransform = {
     scale: 1
@@ -295,59 +377,9 @@ function resetUserTransform() {
   activeTouchPoints.clear();
 }
 
-function ensurePatternTargetsLoaded() {
-  if (patternTargetsReady) return patternTargetsReady;
-  patternTargetsReady = Promise.all(getAllCardTargets().map(async (target) => {
-    const url = target.markerResource?.markerUrl;
-    if (!url) return target;
-    const response = await fetch(withBuildVersion(url), { cache: "no-store" });
-    if (!response.ok) throw new Error(`Cannot load marker pattern: ${url}`);
-    const text = await response.text();
-    const rotations = parsePattRotations(text);
-    if (!rotations.length) throw new Error(`Invalid marker pattern: ${url}`);
-    target.patternSignature = {
-      minConfidence: target.patternMatch?.minConfidence,
-      rotations
-    };
-    console.info(`[AR pattern] loaded: ${target.id}`, {
-      instrument: target.instrumentId,
-      url,
-      rotations: rotations.length,
-      minConfidence: target.patternSignature.minConfidence
-    });
-    return target;
-  })).catch((err) => {
-    console.error("[AR pattern] load failed", err);
-    patternTargetsReady = null;
-    throw err;
-  });
-  return patternTargetsReady;
-}
-
-function withBuildVersion(url) {
-  const resolved = new URL(url, window.location.href);
-  resolved.searchParams.set("v", BUILD_ID);
-  return resolved.href;
-}
-
-function parsePattRotations(text) {
-  const values = String(text).trim().split(/\s+/).map(Number).filter(Number.isFinite);
-  if (values.length < 16 * 16 * 3) return [];
-  const rotations = [];
-  let index = 0;
-  for (let rotation = 0; rotation < 4 && index + 16 * 16 * 3 <= values.length; rotation += 1) {
-    const channels = [];
-    for (let channel = 0; channel < 3; channel += 1) {
-      channels.push(values.slice(index, index + 16 * 16));
-      index += 16 * 16;
-    }
-    rotations.push(channels[0].map((_, cell) => (
-      channels[0][cell] + channels[1][cell] + channels[2][cell]
-    ) / 3));
-  }
-  return rotations;
-}
-
+// ============================================================
+// Welcome screen / UI
+// ============================================================
 function showWelcome() {
   document.body.classList.add("welcome-active");
   $("#welcome-screen")?.classList.remove("hidden");
@@ -358,6 +390,9 @@ function hideWelcome() {
   $("#welcome-screen")?.classList.add("hidden");
 }
 
+// ============================================================
+// Audio engine setup
+// ============================================================
 function ensureAudio() {
   if (audioCtx) return audioCtx;
   const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -454,6 +489,9 @@ function resetAudioForPreset(id) {
   }
 }
 
+// ============================================================
+// Audio synthesis — keep ALL original code
+// ============================================================
 function midiToFrequency(midi) {
   return 440 * Math.pow(2, (midi - 69 + state.pitchBend * 2) / 12);
 }
@@ -605,48 +643,6 @@ async function playDrumMachinePad(options = {}) {
   const id = options.pad || options.id || "kick";
   playDrum(id, clamp(Number(options.velocity ?? 0.88), 0.05, 1));
   return null;
-}
-
-function activateInstrumentMarker(details = {}) {
-  const config = details.markerResource || synthMarkerBinding;
-  const alreadyActive = window.activeInstrument?.cardId === config.cardId;
-  if (window.activeInstrument?.cardId !== config.cardId) {
-    const isDrum = config.instrumentType === "drum-machine";
-    console.info(`markerFound: ${config.cardId}`, {
-      instrument: config.instrumentType,
-      source: details.source,
-      recognizedText: details.recognizedText
-    });
-    window.activeInstrument = {
-      ...config,
-      initAudioEngine: isDrum ? initDrumMachine : initSynthesizer,
-      play: isDrum ? playDrumMachinePad : playSynthesizerNote
-    };
-    document.body.classList.add("synthesizer-active");
-  }
-  setActiveInstrumentModel(config.instrumentType);
-  if (!alreadyActive) window.activeInstrument.initAudioEngine?.();
-  updateArDebug({
-    finalIdentity: config.cardId === "drum" ? "drum" : "synth",
-    shownModel: config.cardId === "drum" ? "drum" : "synth"
-  });
-}
-
-function deactivateInstrumentMarker() {
-  if (window.activeInstrument) {
-    console.info(`markerLost: ${window.activeInstrument.cardId}`, {
-      instrument: window.activeInstrument.instrumentType
-    });
-    window.activeInstrument = null;
-  }
-  setActiveInstrumentModel(null);
-  document.body.classList.remove("synthesizer-active");
-  updateArDebug({
-    finalIdentity: "none",
-    shownModel: "none",
-    "drumModel.visible": false,
-    "synthModel.visible": false
-  });
 }
 
 function releaseVoice(voice, options = {}) {
@@ -1116,6 +1112,9 @@ function playDrum(id, velocity = 0.85) {
   noise.stop(now + 1.0 * decayFactor);
 }
 
+// ============================================================
+// Voice/pointer management
+// ============================================================
 function playKey(midi, object, pointerId = 0) {
   unlockAudio();
   const adjusted = midi + state.octaveShift;
@@ -1241,18 +1240,33 @@ function flashDrumPad(pad, active) {
   pad.material.emissiveIntensity = active ? 0.62 : 0.05;
 }
 
+// ============================================================
+// Scene setup — adapted for A-Frame
+// ============================================================
 function createScene() {
-  const canvas = $("#synth-canvas") || $("#guitar-canvas");
-  scene = new THREE.Scene();
-  camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-  camera.position.set(0, 0, 6.2);
-  renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "high-performance" });
-  renderer.setClearColor(0x000000, 0);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.8));
-  raycaster = new THREE.Raycaster();
-  pointer = new THREE.Vector2();
+  const aframeScene = document.getElementById("ar-scene");
+  if (!aframeScene) {
+    console.error("A-Frame scene not found");
+    return;
+  }
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+  // Wait for A-Frame scene to be ready, then initialize
+  if (aframeScene.hasLoaded) {
+    initAfterSceneReady(aframeScene);
+  } else {
+    aframeScene.addEventListener("loaded", () => initAfterSceneReady(aframeScene));
+  }
+}
+
+function initAfterSceneReady(aframeScene) {
+  // Access the THREE.js objects managed by A-Frame
+  scene = aframeScene.object3D;
+  camera = aframeScene.camera;
+  renderer = aframeScene.renderer;
+
+  // Add custom lights to the scene (A-Frame has its own defaults but we want our specific setup)
+  const ambient = new THREE.AmbientLight(0xffffff, 0.9);
+  scene.add(ambient);
   const key = new THREE.DirectionalLight(0xffffff, 1.55);
   key.position.set(1.8, 3.2, 4.0);
   scene.add(key);
@@ -1260,24 +1274,42 @@ function createScene() {
   rim.position.set(-2.4, 1.2, 2.8);
   scene.add(rim);
 
+  raycaster = new THREE.Raycaster();
+  pointer = new THREE.Vector2();
+
   synthGroup = new THREE.Group();
   synthGroup.name = "AR_Mini_Synth_Workstation";
   synthGroup.matrixAutoUpdate = false;
   synthGroup.visible = false;
+  // Add model groups to the root scene (not inside a-marker)
+  // The instrument-marker component will sync the matrix
   scene.add(synthGroup);
   buildSynthModel();
+
   drumGroup = new THREE.Group();
   drumGroup.name = "QR_Drum_Machine";
   drumGroup.matrixAutoUpdate = false;
   drumGroup.visible = false;
   scene.add(drumGroup);
   buildDrumMachineModel();
+
   activeModelGroup = synthGroup;
+
+  // Link model groups to marker components
+  setActiveInstrumentModel("synthesizer");
+
   resizeCanvas();
-  bindCanvasEvents(canvas);
-  requestAnimationFrame(render);
+  bindCanvasEvents(aframeScene.canvas);
+  selectPreset("SYNTH");
+  selectWave("SAW");
+  setStageWaiting(false);
+  setPrompt(PROMPT_FIND_CARD);
+  updateArDebug();
 }
 
+// ============================================================
+// 3D Model building — KEEP ALL ORIGINAL CODE
+// ============================================================
 function addInteractive(mesh, interaction) {
   mesh.userData.interaction = interaction;
   interactives.push(mesh);
@@ -1747,6 +1779,9 @@ function updateDisplayForKey(midi) {
   updateDisplay(state.currentPreset, state.currentMode === "guitar" ? "GUITAR" : state.currentWave, name);
 }
 
+// ============================================================
+// Interaction handling — adapted for A-Frame canvas
+// ============================================================
 function handleControl(interaction, hit, event) {
   if (!interaction) return;
   unlockAudio();
@@ -1881,9 +1916,15 @@ function updateTransformGesture() {
   updateDisplay(state.currentPreset, state.currentWave, `SCALE ${Math.round(userTransform.scale * 100)}`);
 }
 
+function isMarkerVisible() {
+  return state.marker.locked;
+}
+
 function bindCanvasEvents(canvas) {
   if (!canvas || canvasBound) return;
   canvasBound = true;
+
+  // Use the A-Frame canvas with our own camera for raycaster
   const getHit = (event) => {
     const rect = canvas.getBoundingClientRect();
     pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1936,9 +1977,9 @@ function bindCanvasEvents(canvas) {
 }
 
 function resizeCanvas() {
-  const canvas = $("#synth-canvas") || $("#guitar-canvas");
+  if (!renderer || !camera) return;
   const stage = $("#ar-stage");
-  if (!canvas || !renderer || !camera || !stage) return;
+  if (!stage) return;
   const rect = stage.getBoundingClientRect();
   const width = Math.max(1, Math.floor(rect.width));
   const height = Math.max(1, Math.floor(rect.height));
@@ -1947,495 +1988,9 @@ function resizeCanvas() {
   camera.updateProjectionMatrix();
 }
 
-async function startCameraMode() {
-  const video = $("#camera-feed");
-  const button = $("#camera-toggle");
-  if (!video || cameraStream || cameraStarting) return;
-  unlockAudio();
-  setPrompt("正在打开相机");
-  if (needsHttps()) {
-    setPrompt("相机需要 HTTPS");
-    return;
-  }
-  if (!hasCameraSupport()) {
-    setPrompt("浏览器不支持相机");
-    return;
-  }
-  cameraStarting = true;
-  if (button) button.textContent = "正在打开相机";
-  try {
-    setPrompt("正在加载乐器卡 pattern");
-    await ensurePatternTargetsLoaded();
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        facingMode: { ideal: "environment" },
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      }
-    });
-    video.muted = true;
-    video.playsInline = true;
-    video.setAttribute("playsinline", "");
-    video.setAttribute("webkit-playsinline", "");
-    video.srcObject = cameraStream;
-    await video.play();
-    $("#ar-stage")?.classList.add("camera-active");
-    setStageWaiting(false);
-    setPrompt(PROMPT_FIND_CARD);
-    startMarkerTracking();
-    if (button) button.textContent = "退出相机";
-  } catch (err) {
-    cameraStream = null;
-    video.srcObject = null;
-    setStageWaiting(true);
-    setPrompt("相机未开启：请允许微信访问摄像头");
-    if (button) button.textContent = "打开相机";
-  } finally {
-    cameraStarting = false;
-  }
-}
-
-function stopCameraMode() {
-  if (cameraStream) {
-    cameraStream.getTracks().forEach((track) => track.stop());
-    cameraStream = null;
-  }
-  const video = $("#camera-feed");
-  if (video) video.srcObject = null;
-  $("#ar-stage")?.classList.remove("camera-active");
-  cancelActiveControlPointers();
-  activeTouchPoints.clear();
-  transformGesture = null;
-  stopMarkerTracking();
-  state.marker.locked = false;
-  anchor.confidence = 0;
-  deactivateInstrumentMarker();
-  if (synthGroup) synthGroup.visible = false;
-  if (drumGroup) drumGroup.visible = false;
-  setSynthActive(false);
-  setStageWaiting(true);
-  setPrompt("请允许相机");
-  const button = $("#camera-toggle");
-  if (button) button.textContent = "打开相机";
-}
-
-function toggleCameraMode() {
-  if (cameraStream || cameraStarting) stopCameraMode();
-  else startCameraMode();
-}
-
-function getScanner() {
-  if (!scanCanvas) {
-    scanCanvas = document.createElement("canvas");
-    scanCtx = scanCanvas.getContext("2d", { willReadFrequently: true });
-  }
-  return scanCtx ? { canvas: scanCanvas, ctx: scanCtx } : null;
-}
-
-function startMarkerTracking() {
-  if (markerFrame) return;
-  lastScanAt = 0;
-  markerFrame = requestAnimationFrame(scanMarkerFrame);
-}
-
-function stopMarkerTracking() {
-  if (markerFrame) cancelAnimationFrame(markerFrame);
-  markerFrame = 0;
-  anchor.confidence = 0;
-  foundFrameCount = 0;
-  lastCandidateAt = 0;
-  lastCardPoseScan = null;
-}
-
-function scanMarkerFrame(time = 0) {
-  if (!cameraStream) {
-    hideMarker("请允许相机");
-    markerFrame = 0;
-    return;
-  }
-  if (time - lastScanAt >= MARKER_SCAN_INTERVAL) {
-    lastScanAt = time;
-    scanTextCardMarker();
-  }
-  markerFrame = requestAnimationFrame(scanMarkerFrame);
-}
-
-function scanTextCardMarker() {
-  const video = $("#camera-feed");
-  const scanner = getScanner();
-  if (!video || !scanner) {
-    updateArDebug({
-      markerFound: false,
-      poseFound: false,
-      poseUpdated: false,
-      pattWinner: "none",
-      classifiedIdentity: "none",
-      finalIdentity: "none"
-    });
-    hideMarker(PROMPT_FIND_CARD);
-    return false;
-  }
-  if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) {
-    updateArDebug({
-      markerFound: false,
-      poseFound: false,
-      poseUpdated: false,
-      pattWinner: "none",
-      classifiedIdentity: "none",
-      finalIdentity: "none"
-    });
-    hideMarker(PROMPT_FIND_CARD);
-    return false;
-  }
-
-  const maxSide = 720;
-  const scale = Math.min(1, maxSide / Math.max(video.videoWidth, video.videoHeight));
-  const width = Math.max(1, Math.floor(video.videoWidth * scale));
-  const height = Math.max(1, Math.floor(video.videoHeight * scale));
-  if (scanner.canvas.width !== width) scanner.canvas.width = width;
-  if (scanner.canvas.height !== height) scanner.canvas.height = height;
-  scanner.ctx.drawImage(video, 0, 0, width, height);
-  const imageData = scanner.ctx.getImageData(0, 0, width, height);
-  const frame = { imageData, width, height };
-  const pose = detectAnyCardPoseFromFrame(frame);
-  const markerFound = Boolean(pose);
-  const classification = markerFound ? classifyCard(frame, pose) : { identity: null, blueRatio: 0 };
-  const cardId = classification.identity === "drum" ? "drum" : classification.identity === "synth" ? "hechengqi" : null;
-  const cardTarget = cardId ? getCardTarget(cardId) : null;
-  const finalIdentity = classification.identity || "none";
-  updateArDebug({
-    markerFound,
-    poseFound: markerFound,
-    pattWinner: pose?.pattWinner || pose?.cardId || "none",
-    blueRatio: classification.blueRatio.toFixed(4),
-    classifiedIdentity: classification.identity || "none",
-    finalIdentity: finalIdentity || "none",
-    poseUpdated: false
-  });
-  if (!markerFound) {
-    return handleMarkerMiss(PROMPT_FIND_CARD);
-  }
-  if (!cardTarget) return handleMarkerMiss(PROMPT_FIND_CARD);
-  const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
-    payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
-    cardId,
-    instrumentType: cardTarget.resolvedInstrument || cardTarget.markerResource?.instrumentType || cardTarget.instrumentId || "synthesizer",
-    recognizedText: cardTarget.recognizedText || cardTarget.title || "",
-    markerResource: cardTarget.markerResource || synthMarkerBinding,
-    source: `${pose.source || "text-card"}+classify-card`,
-    immediate: true
-  }));
-  updateArDebug({ poseUpdated: tracked });
-  if (!tracked) return handleMarkerMiss(PROMPT_FIND_CARD);
-  return tracked;
-}
-
-function handleMarkerMiss(promptText) {
-  const now = performance.now();
-  if (state.marker.locked && now - state.marker.lastSeenAt <= MARKER_LOST_TIMEOUT_MS) {
-    if (promptText) setPrompt(promptText);
-    return false;
-  }
-  hideMarker(promptText);
-  return false;
-}
-
-function detectAnyCardPoseFromFrame(frame) {
-  const hits = [];
-  for (const target of getAllCardTargets()) {
-    const pose = detectCardPoseFromFrame(target, frame);
-    if (!pose) continue;
-    hits.push({
-      score: pose.patternConfidence || 0,
-      pose: {
-        ...pose,
-        cardId: target.id,
-        resolvedInstrument: target.resolvedInstrument || target.instrumentId,
-        recognizedText: target.recognizedText || target.title,
-        decodedPayload: target.encodedPayload || pose.decodedPayload
-      }
-    });
-  }
-  if (!hits.length) return null;
-  hits.sort((a, b) => b.score - a.score);
-  const [best, runnerUp] = hits;
-  best.pose.pattWinner = best.pose.cardId;
-  best.pose.patternScores = hits.map((hit) => ({
-    id: hit.pose.cardId,
-    score: hit.score
-  }));
-  if (runnerUp && best.score - runnerUp.score < PATTERN_SWITCH_MARGIN) {
-    console.warn("[AR pattern] ambiguous match kept as anchor pose", {
-      best: best.pose.cardId,
-      bestScore: best.score,
-      runnerUp: runnerUp.pose.cardId,
-      runnerUpScore: runnerUp.score
-    });
-  }
-  return best.pose;
-}
-
-function classifyCard(frame, pose = null) {
-  const blueRatio = pose?.center && pose?.xUnit && pose?.yUnit
-    ? samplePoseBlueRatio(frame, pose, { x: 0.24, y: 0.24, w: 0.52, h: 0.52, cols: 56, rows: 56 })
-    : sampleFrameCenterBlueRatio(frame);
-  return {
-    blueRatio,
-    identity: blueRatio > BLUE_CARD_THRESHOLD ? "drum" : "synth"
-  };
-}
-
-function samplePoseBlueRatio(frame, pose, region) {
-  if (!frame?.imageData?.data || !pose?.center) return 0;
-  const cols = region.cols || 48;
-  const rows = region.rows || 48;
-  const data = frame.imageData.data;
-  let blue = 0;
-  let total = 0;
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const nx = region.x + ((col + 0.5) / cols) * region.w;
-      const ny = region.y + ((row + 0.5) / rows) * region.h;
-      const p = {
-        x: pose.center.x + pose.xUnit.x * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.x * (ny - 0.5) * pose.halfH * 2,
-        y: pose.center.y + pose.xUnit.y * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.y * (ny - 0.5) * pose.halfH * 2
-      };
-      const x = Math.round(p.x);
-      const y = Math.round(p.y);
-      if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) continue;
-      const i = (y * frame.width + x) * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      if (b > 100 && b > r * 1.3 && b > g * 1.1) blue += 1;
-      total += 1;
-    }
-  }
-  return total ? blue / total : 0;
-}
-
-function sampleFrameCenterBlueRatio(frame) {
-  if (!frame?.imageData?.data) return 0;
-  const data = frame.imageData.data;
-  const minX = Math.floor(frame.width * 0.30);
-  const maxX = Math.ceil(frame.width * 0.70);
-  const minY = Math.floor(frame.height * 0.30);
-  const maxY = Math.ceil(frame.height * 0.70);
-  let blue = 0;
-  let total = 0;
-  for (let y = minY; y < maxY; y += 2) {
-    for (let x = minX; x < maxX; x += 2) {
-      const i = (y * frame.width + x) * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      if (b > 100 && b > r * 1.3 && b > g * 1.1) blue += 1;
-      total += 1;
-    }
-  }
-  return total ? blue / total : 0;
-}
-
-function mapVideoPointToStage(point, scanScale) {
-  const video = $("#camera-feed");
-  const stage = $("#ar-stage");
-  const rect = stage?.getBoundingClientRect();
-  if (!video || !rect?.width || !rect?.height || !video.videoWidth || !video.videoHeight) {
-    return { x: 0.5, y: 0.5, px: rect?.width ? rect.width * 0.5 : 0, py: rect?.height ? rect.height * 0.5 : 0 };
-  }
-  const nativeX = point.x / scanScale;
-  const nativeY = point.y / scanScale;
-  const coverScale = Math.max(rect.width / video.videoWidth, rect.height / video.videoHeight);
-  const shownW = video.videoWidth * coverScale;
-  const shownH = video.videoHeight * coverScale;
-  const px = nativeX * coverScale + (rect.width - shownW) * 0.5;
-  const py = nativeY * coverScale + (rect.height - shownH) * 0.5;
-  return { x: px / rect.width, y: py / rect.height, px, py };
-}
-
-function dist(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-function updateMarkerFromImageTracker(scanScale, frame) {
-  if (!lastCardPoseScan || !state.marker.cardId) return false;
-  const cardTarget = getCardTarget(state.marker.cardId);
-  const pose = trackCardPoseFromFrame(lastCardPoseScan, cardTarget, frame);
-  if (!isReliableImageTrackedPose(pose, cardTarget, frame)) return false;
-  return pose;
-}
-
-function isReliableImageTrackedPose(pose, cardTarget, frame) {
-  if (!pose) return false;
-  const strongCorners = (pose.markerRatios || [])
-    .filter((ratio) => ratio >= MIN_IMAGE_TRACK_CORNER_RATIO)
-    .length;
-  const textConfidence = sampleTrackedCardTextConfidence(pose, cardTarget, frame);
-  const dataConfidence = sampleTrackedCardDataConfidence(pose, cardTarget, frame);
-  pose.textConfidence = textConfidence;
-  pose.dataConfidence = dataConfidence;
-  pose.decodedPayload = cardTarget?.encodedPayload || "";
-  const policy = cardTarget?.recognition || {};
-  const markerConfidence = pose.wholeCardConfidence ?? 0;
-  const textMin = policy.minTextConfidence ?? cardTarget?.textSignatureMinConfidence ?? 0.42;
-  const dataMin = policy.minDataConfidence ?? cardTarget?.dataSignature?.minConfidence ?? 0.48;
-  const combinedMin = policy.minCombinedConfidence ?? 0.54;
-  const hasEnoughCorners = pose.visibleMarkers >= REQUIRED_IMAGE_TRACK_CORNERS
-    && strongCorners >= Math.max(3, REQUIRED_IMAGE_TRACK_CORNERS - 1)
-    && markerConfidence >= Math.min(MIN_IMAGE_TRACK_CONFIDENCE, policy.minCornerConfidence ?? 0.44);
-  const combined = markerConfidence * 0.48 + textConfidence * 0.34 + dataConfidence * 0.18;
-  return hasEnoughCorners
-    && (textConfidence >= textMin || dataConfidence >= dataMin || textConfidence >= textMin * 0.72)
-    && combined >= combinedMin * 0.88;
-}
-
-function sampleTrackedCardTextConfidence(pose, cardTarget, frame) {
-  if (!pose || !cardTarget?.textSignatureRegions?.length || !frame?.imageData?.data) return 0;
-  let passed = 0;
-  let confidence = 0;
-  for (const region of cardTarget.textSignatureRegions) {
-    const ratio = samplePoseRegionDarkRatio(pose, frame, region);
-    const minRatio = region.minDarkRatio ?? 0.035;
-    if (ratio >= minRatio) passed += 1;
-    confidence += Math.min(1, ratio / Math.max(minRatio, 0.001));
-  }
-  const averageConfidence = confidence / cardTarget.textSignatureRegions.length;
-  return passed >= Math.max(1, cardTarget.textSignatureRegions.length - 1)
-    ? averageConfidence
-    : averageConfidence * 0.58;
-}
-
-function sampleTrackedCardDataConfidence(pose, cardTarget, frame) {
-  const signature = cardTarget?.dataSignature;
-  if (!signature?.bits || !frame?.imageData?.data) return 1;
-  let score = 0;
-  const bits = String(signature.bits);
-  for (let index = 0; index < bits.length; index += 1) {
-    const bit = bits[index];
-    const region = {
-      x: signature.x + (signature.w / bits.length) * index + signature.w / bits.length * 0.18,
-      y: signature.y,
-      w: signature.w / bits.length * 0.64,
-      h: signature.h,
-      cols: 3,
-      rows: 4
-    };
-    const ratio = samplePoseRegionDarkRatio(pose, frame, region);
-    if (bit === "1") {
-      const minRatio = signature.oneMinDarkRatio ?? 0.18;
-      score += ratio >= minRatio ? 1 : Math.max(0, ratio / minRatio);
-    } else {
-      const limit = signature.zeroMaxDarkRatio ?? 0.13;
-      score += ratio <= limit ? 1 : Math.max(0, 1 - (ratio - limit) / Math.max(limit, 0.01));
-    }
-  }
-  return score / bits.length;
-}
-
-function samplePoseRegionDarkRatio(pose, frame, region) {
-  const cols = region.cols || 24;
-  const rows = region.rows || 8;
-  const data = frame.imageData.data;
-  let dark = 0;
-  let total = 0;
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < cols; col++) {
-      const nx = region.x + ((col + 0.5) / cols) * region.w;
-      const ny = region.y + ((row + 0.5) / rows) * region.h;
-      const p = new THREE.Vector2(
-        pose.center.x + pose.xUnit.x * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.x * (ny - 0.5) * pose.halfH * 2,
-        pose.center.y + pose.xUnit.y * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.y * (ny - 0.5) * pose.halfH * 2
-      );
-      const x = Math.round(p.x);
-      const y = Math.round(p.y);
-      if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) continue;
-      const i = (y * frame.width + x) * 4;
-      const luminance = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-      if (luminance < 108) dark += 1;
-      total += 1;
-    }
-  }
-  return total ? dark / total : 0;
-}
-
-function updateMarkerFromPose(pose, scanScale, details) {
-  const location = pose?.location;
-  if (!location) return false;
-  const now = performance.now();
-  const requiredFrames = details.immediate ? 1 : REQUIRED_FOUND_FRAMES;
-  if (!state.marker.locked) {
-    if (now - lastCandidateAt > MARKER_CANDIDATE_RESET_MS) foundFrameCount = 0;
-    lastCandidateAt = now;
-    foundFrameCount += 1;
-    lastCardPoseScan = pose;
-    if (foundFrameCount < requiredFrames) {
-      setPrompt(`正在稳定识别卡片 ${foundFrameCount}/${requiredFrames}`);
-      return false;
-    }
-  } else {
-    foundFrameCount = Math.max(foundFrameCount, requiredFrames);
-    lastCandidateAt = now;
-  }
-
-  const tl = mapVideoPointToStage(location.topLeftCorner, scanScale);
-  const tr = mapVideoPointToStage(location.topRightCorner, scanScale);
-  const br = mapVideoPointToStage(location.bottomRightCorner, scanScale);
-  const bl = mapVideoPointToStage(location.bottomLeftCorner, scanScale);
-  const rect = $("#ar-stage")?.getBoundingClientRect();
-  const minSide = Math.max(1, Math.min(rect?.width || 1, rect?.height || 1));
-  const topW = dist(tl, tr);
-  const bottomW = dist(bl, br);
-  const leftH = dist(tl, bl);
-  const rightH = dist(tr, br);
-  const center = pose.anchorCenter
-    ? mapVideoPointToStage(pose.anchorCenter, scanScale)
-    : {
-        x: (tl.x + tr.x + br.x + bl.x) * 0.25,
-        y: (tl.y + tr.y + br.y + bl.y) * 0.25
-      };
-
-  const projectedSize = ((topW + bottomW + leftH + rightH) * 0.25) / minSide;
-  const angle = Math.atan2(tr.py - tl.py, tr.px - tl.px);
-  const tiltX = clamp((rightH - leftH) / Math.max(leftH + rightH, 1), -0.38, 0.38);
-  const tiltY = clamp((bottomW - topW) / Math.max(topW + bottomW, 1), -0.38, 0.38);
-  const poseMatrix = composeMarkerPoseMatrixFromCorners({
-    cardId: details.cardId,
-    tl,
-    tr,
-    br,
-    bl,
-    centerX: center.x,
-    centerY: center.y,
-    size: Math.max(0.001, projectedSize),
-    angle,
-    tiltX,
-    tiltY
-  });
-  state.marker = {
-    locked: true,
-    payload: details.payload,
-    cardId: details.cardId,
-    instrumentType: details.instrumentType || "synthesizer",
-    recognizedText: details.recognizedText || "",
-    lastSeenAt: now,
-    poseMatrix,
-    centerX: center.x,
-    centerY: center.y,
-    size: Math.max(0.001, projectedSize),
-    angle,
-    tiltX,
-    tiltY
-  };
-  lastCardPoseScan = pose;
-  activateInstrumentMarker(details);
-  if (activeModelGroup) activeModelGroup.visible = true;
-  setSynthActive(true);
-  restoreOutputForMarkerFound();
-  setPrompt(details.instrumentType === "drum-machine" ? "QR Drum Machine" : "AR Mini Synth Workstation");
-  return true;
-}
-
+// ============================================================
+// Debug panel
+// ============================================================
 function updateArDebug(partial = {}) {
   Object.assign(arDebugState, partial);
   arDebugState.shownModel = drumGroup?.visible && activeModelGroup === drumGroup
@@ -2452,217 +2007,25 @@ function updateArDebug(partial = {}) {
     .join("");
 }
 
-function isMarkerVisible() {
-  return state.marker.locked;
-}
-
-function updateMarkerLost() {
-  enforceMarkerTimeout();
-}
-
-function enforceMarkerTimeout(now = performance.now()) {
-  if (!cameraStream && state.marker.locked) {
-    hideMarker(PROMPT_FIND_CARD);
-    return false;
-  }
-  if (state.marker.locked && now - state.marker.lastSeenAt > MARKER_LOST_TIMEOUT_MS) {
-    hideMarker(PROMPT_FIND_CARD);
-    return false;
-  }
-  return state.marker.locked;
-}
-
-function hideMarker(promptText) {
-  state.marker.locked = false;
-  state.marker.lastSeenAt = 0;
-  anchor = createEmptyAnchor();
-  foundFrameCount = 0;
-  lastCandidateAt = 0;
-  lastCardPoseScan = null;
-  cancelActiveControlPointers();
-  muteOutputForMarkerLoss();
-  deactivateInstrumentMarker();
-  if (synthGroup) synthGroup.visible = false;
-  if (drumGroup) drumGroup.visible = false;
-  setSynthActive(false);
-  updateArDebug({
-    markerFound: false,
-    poseFound: false,
-    pattWinner: "none",
-    classifiedIdentity: "none",
-    finalIdentity: "none",
-    shownModel: "none",
-    poseUpdated: false,
-    "drumModel.visible": false,
-    "synthModel.visible": false
-  });
-  if (promptText) setPrompt(promptText);
-}
-
-function markerTargetForView() {
-  const card = getCardTarget(state.marker.cardId);
-  const cardAnchor = card.anchor || {};
-  const z = markerZFromCardSize(cardAnchor.zOffset ?? 0.10);
-  const position = screenPointToWorldAtZ(state.marker.centerX, state.marker.centerY, z);
-  return {
-    x: position.x,
-    y: position.y,
-    z,
-    scale: FIXED_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1),
-    angle: state.marker.angle,
-    tiltX: state.marker.tiltX,
-    tiltY: state.marker.tiltY
-  };
-}
-
-function composeMarkerPoseMatrix(marker) {
-  const card = getCardTarget(marker.cardId);
-  const cardAnchor = card.anchor || {};
-  const z = markerZFromCardSize(cardAnchor.zOffset ?? 0.10, marker.size);
-  const position2d = screenPointToWorldAtZ(marker.centerX, marker.centerY, z);
-  const position = new THREE.Vector3(position2d.x, position2d.y, z);
-  const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-    -0.35 + marker.tiltY * 0.42,
-    marker.tiltX * 0.42,
-    marker.angle,
-    "XYZ"
-  ));
-  const scale = FIXED_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1);
-  return new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(scale, scale, scale));
-}
-
-function composeMarkerPoseMatrixFromCorners(marker) {
-  const card = getCardTarget(marker.cardId);
-  const cardAnchor = card.anchor || {};
-  const z = markerZFromCardSize(cardAnchor.zOffset ?? 0.10, marker.size);
-  const worldTl = stagePointToWorldAtZ(marker.tl, z);
-  const worldTr = stagePointToWorldAtZ(marker.tr, z);
-  const worldBr = stagePointToWorldAtZ(marker.br, z);
-  const worldBl = stagePointToWorldAtZ(marker.bl, z);
-  const leftMid = new THREE.Vector3().addVectors(worldTl, worldBl).multiplyScalar(0.5);
-  const rightMid = new THREE.Vector3().addVectors(worldTr, worldBr).multiplyScalar(0.5);
-  const topMid = new THREE.Vector3().addVectors(worldTl, worldTr).multiplyScalar(0.5);
-  const bottomMid = new THREE.Vector3().addVectors(worldBl, worldBr).multiplyScalar(0.5);
-  const position = new THREE.Vector3()
-    .addVectors(leftMid, rightMid)
-    .multiplyScalar(0.5);
-  const xAxis = new THREE.Vector3().subVectors(rightMid, leftMid);
-  const yAxis = new THREE.Vector3().subVectors(bottomMid, topMid);
-  const angle = Math.atan2(xAxis.y, xAxis.x);
-  const tiltX = clamp((worldBr.distanceTo(worldTr) - worldBl.distanceTo(worldTl)) / Math.max(worldBr.distanceTo(worldTr) + worldBl.distanceTo(worldTl), 0.001), -0.5, 0.5);
-  const tiltY = clamp((worldBr.distanceTo(worldBl) - worldTr.distanceTo(worldTl)) / Math.max(worldBr.distanceTo(worldBl) + worldTr.distanceTo(worldTl), 0.001), -0.5, 0.5);
-  const quaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(
-    -0.35 + tiltY * 0.85,
-    tiltX * 0.85,
-    angle,
-    "XYZ"
-  ));
-  const scale = FIXED_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1);
-  return new THREE.Matrix4().compose(position, quaternion, new THREE.Vector3(scale, scale, scale));
-}
-
-function stagePointToWorldAtZ(point, z) {
-  const mapped = screenPointToWorldAtZ(point.x, point.y, z);
-  return new THREE.Vector3(mapped.x, mapped.y, z);
-}
-
-function markerZFromCardSize(defaultZ = 0.10, markerSize = state.marker.size) {
-  if (!camera) return defaultZ;
-  const size = Math.max(0.001, markerSize || MARKER_REFERENCE_SIZE);
-  const distance = clamp(
-    MARKER_REFERENCE_DISTANCE * (MARKER_REFERENCE_SIZE / size),
-    MARKER_MIN_DISTANCE,
-    MARKER_MAX_DISTANCE
-  );
-  return camera.position.z - distance;
-}
-
-function screenPointToWorldAtZ(x, y, z) {
-  if (!camera) return { x: 0, y: 0 };
-  const view = getViewWorldSize(z);
-  return {
-    x: (x - 0.5) * view.width,
-    y: (0.5 - y) * view.height
-  };
-}
-
-function getViewWorldSize(z = 0) {
-  if (!camera) return { width: 5.8, height: 3.0 };
-  const distance = Math.max(0.1, camera.position.z - z);
-  const height = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * distance;
-  return {
-    width: height * camera.aspect,
-    height
-  };
-}
-
-function updateAnchor(portrait) {
-  const visible = isMarkerVisible();
-  if (!visible) {
-    anchor.confidence = 0;
-    return;
-  }
-  anchor.poseMatrix = state.marker.poseMatrix || composeMarkerPoseMatrix(state.marker);
-  anchor.confidence = 1;
-}
-
-function render(time = 0) {
-  enforceMarkerTimeout(time || performance.now());
-  const stage = $("#ar-stage");
-  const rect = stage?.getBoundingClientRect();
-  const portrait = (rect?.height || window.innerHeight) >= (rect?.width || window.innerWidth);
-  updateAnchor(portrait);
-
-  if (activeModelGroup) {
-    const visible = isMarkerVisible();
-    if (synthGroup) synthGroup.visible = visible && activeModelGroup === synthGroup;
-    if (drumGroup) drumGroup.visible = visible && activeModelGroup === drumGroup;
-    updateArDebug({
-      shownModel: visible && activeModelGroup === drumGroup
-        ? "drum"
-        : visible && activeModelGroup === synthGroup
-          ? "synth"
-          : "none",
-      "drumModel.visible": Boolean(drumGroup?.visible),
-      "synthModel.visible": Boolean(synthGroup?.visible)
-    });
-    if (!visible) {
-      renderer.render(scene, camera);
-      requestAnimationFrame(render);
-      return;
-    }
-    if (anchor.poseMatrix) {
-      activeModelGroup.matrix.copy(anchor.poseMatrix);
-      activeModelGroup.matrixAutoUpdate = false;
-      activeModelGroup.matrixWorldNeedsUpdate = true;
-      activeModelGroup.updateMatrixWorld(true);
-    }
-  }
-
-  renderer.render(scene, camera);
-  requestAnimationFrame(render);
-}
-
+// ============================================================
+// Event bindings & initialization
+// ============================================================
 function bindEvents() {
   $("#start-ar")?.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     unlockAudio();
     hideWelcome();
-    startCameraMode();
+    startAR();
   }, { passive: false });
   $("#start-ar")?.addEventListener("touchstart", () => unlockAudio(), { passive: true });
   $("#start-ar")?.addEventListener("click", (event) => {
     event.preventDefault();
     unlockAudio();
   });
-  $("#camera-toggle")?.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    toggleCameraMode();
-  });
   $("#reset-view")?.addEventListener("pointerdown", (event) => {
     event.preventDefault();
     resetUserTransform();
-    hideMarker("视角已重置，请重新对准乐器识别卡");
+    setPrompt("视角已重置，请重新对准乐器识别卡");
     updateDisplay(state.currentPreset, state.currentWave, "VIEW RESET");
   });
   document.addEventListener("WeixinJSBridgeReady", () => {
@@ -2675,12 +2038,26 @@ function bindEvents() {
   window.addEventListener("orientationchange", () => window.setTimeout(resizeCanvas, 120));
 }
 
+function startAR() {
+  const aframeScene = document.getElementById("ar-scene");
+  if (!aframeScene) return;
+
+  // Show the A-Frame scene
+  aframeScene.classList.add("active");
+  aframeScene.style.display = "block";
+
+  setStageWaiting(false);
+  setPrompt(PROMPT_FIND_CARD);
+
+  // Initialize our THREE.js integration once the scene is ready
+  if (!scene) {
+    createScene();
+  }
+}
+
 function init() {
   unregisterServiceWorkers();
   bindEvents();
-  createScene();
-  selectPreset("SYNTH");
-  selectWave("SAW");
   setStageWaiting(true);
   setPrompt("请允许相机");
   showWelcome();

@@ -1,1 +1,1 @@
-import "./runtime.js?v=20260529-patt-binding-v5";
+import "./runtime.js?v=20260529-patt-binding-v6";

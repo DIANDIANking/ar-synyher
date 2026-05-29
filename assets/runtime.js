@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v7";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v8";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v7";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v8";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -182,6 +182,7 @@ let drumControlMeshes = new Map();
 let patternTargetsReady = null;
 let patternConfigLogged = false;
 let lastPatternScoreLogAt = 0;
+let lastShowDebugAlertKey = "";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -272,6 +273,23 @@ function setActiveInstrumentModel(instrumentType) {
       : null;
   if (synthGroup) synthGroup.visible = false;
   if (drumGroup) drumGroup.visible = false;
+}
+
+function debugNameForCard(cardId) {
+  return cardId === "hechengqi" ? "synth" : cardId || "none";
+}
+
+function debugNameForActiveModel() {
+  if (activeModelGroup === synthGroup) return "synth";
+  if (activeModelGroup === drumGroup) return "drum";
+  return "none";
+}
+
+function alertInstrumentShowDebug(winner, activeModelName) {
+  const key = `${winner}:${activeModelName}`;
+  if (key === lastShowDebugAlertKey) return;
+  lastShowDebugAlertKey = key;
+  window.alert(`winner=${winner} model=${activeModelName}`);
 }
 
 function resetUserTransform() {
@@ -646,6 +664,7 @@ function deactivateInstrumentMarker() {
     });
     window.activeInstrument = null;
   }
+  lastShowDebugAlertKey = "";
   setActiveInstrumentModel(null);
   document.body.classList.remove("synthesizer-active");
 }
@@ -2332,7 +2351,10 @@ function updateMarkerFromPose(pose, scanScale, details) {
   };
   lastCardPoseScan = pose;
   activateInstrumentMarker(details);
-  if (activeModelGroup) activeModelGroup.visible = true;
+  if (activeModelGroup) {
+    activeModelGroup.visible = true;
+    alertInstrumentShowDebug(debugNameForCard(details.cardId), debugNameForActiveModel());
+  }
   setSynthActive(true);
   restoreOutputForMarkerFound();
   setPrompt(details.instrumentType === "drum-machine" ? "QR Drum Machine" : "AR Mini Synth Workstation");

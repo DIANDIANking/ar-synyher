@@ -1,8 +1,8 @@
-import * as THREE from "./three.js?v=20260529-pattern-restore-v1";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-pattern-restore-v1";
-import { createEmptyAnchor } from "./anchor.js?v=20260529-pattern-restore-v1";
-import { hasCameraSupport, needsHttps } from "./camera.js?v=20260529-pattern-restore-v1";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-pattern-restore-v1";
+import * as THREE from "./three.js?v=20260529-classify-card-v1";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-classify-card-v1";
+import { createEmptyAnchor } from "./anchor.js?v=20260529-classify-card-v1";
+import { hasCameraSupport, needsHttps } from "./camera.js?v=20260529-classify-card-v1";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-classify-card-v1";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -31,12 +31,13 @@ const FADERS = [
 const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-const BUILD_ID = "20260529-pattern-restore-v1";
+const BUILD_ID = "20260529-classify-card-v1";
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
 const MARKER_LOST_TIMEOUT_MS = 300;
 const PATTERN_SWITCH_MARGIN = 0.035;
+const BLUE_CARD_THRESHOLD = 0.03;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
 const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
@@ -185,7 +186,8 @@ const arDebugState = {
   markerFound: false,
   poseFound: false,
   pattWinner: "none",
-  classifiedIdentity: "pattern",
+  blueRatio: "0.0000",
+  classifiedIdentity: "none",
   finalIdentity: "none",
   shownModel: "none",
   "drumModel.visible": false,
@@ -2095,14 +2097,16 @@ function scanTextCardMarker() {
   const frame = { imageData, width, height };
   const pose = detectAnyCardPoseFromFrame(frame);
   const markerFound = Boolean(pose);
-  const cardId = pose?.cardId || null;
+  const classification = markerFound ? classifyCard(frame, pose) : { identity: null, blueRatio: 0 };
+  const cardId = classification.identity === "drum" ? "drum" : classification.identity === "synth" ? "hechengqi" : null;
   const cardTarget = cardId ? getCardTarget(cardId) : null;
-  const finalIdentity = cardId === "drum" ? "drum" : cardId === "hechengqi" ? "synth" : "none";
+  const finalIdentity = classification.identity || "none";
   updateArDebug({
     markerFound,
     poseFound: markerFound,
     pattWinner: pose?.pattWinner || pose?.cardId || "none",
-    classifiedIdentity: markerFound ? "pattern" : "none",
+    blueRatio: classification.blueRatio.toFixed(4),
+    classifiedIdentity: classification.identity || "none",
     finalIdentity: finalIdentity || "none",
     poseUpdated: false
   });
@@ -2113,10 +2117,10 @@ function scanTextCardMarker() {
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
     payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
     cardId,
-    instrumentType: pose.resolvedInstrument || cardTarget.resolvedInstrument || cardTarget.markerResource?.instrumentType || cardTarget.instrumentId || "synthesizer",
-    recognizedText: pose.recognizedText || cardTarget.recognizedText || cardTarget.title || "",
+    instrumentType: cardTarget.resolvedInstrument || cardTarget.markerResource?.instrumentType || cardTarget.instrumentId || "synthesizer",
+    recognizedText: cardTarget.recognizedText || cardTarget.title || "",
     markerResource: cardTarget.markerResource || synthMarkerBinding,
-    source: pose.source || "text-card",
+    source: `${pose.source || "text-card"}+classify-card`,
     immediate: true
   }));
   updateArDebug({ poseUpdated: tracked });
@@ -2159,15 +2163,75 @@ function detectAnyCardPoseFromFrame(frame) {
     score: hit.score
   }));
   if (runnerUp && best.score - runnerUp.score < PATTERN_SWITCH_MARGIN) {
-    console.warn("[AR pattern] ambiguous match ignored", {
+    console.warn("[AR pattern] ambiguous match kept as anchor pose", {
       best: best.pose.cardId,
       bestScore: best.score,
       runnerUp: runnerUp.pose.cardId,
       runnerUpScore: runnerUp.score
     });
-    return null;
   }
   return best.pose;
+}
+
+function classifyCard(frame, pose = null) {
+  const blueRatio = pose?.center && pose?.xUnit && pose?.yUnit
+    ? samplePoseBlueRatio(frame, pose, { x: 0.24, y: 0.24, w: 0.52, h: 0.52, cols: 56, rows: 56 })
+    : sampleFrameCenterBlueRatio(frame);
+  return {
+    blueRatio,
+    identity: blueRatio > BLUE_CARD_THRESHOLD ? "drum" : "synth"
+  };
+}
+
+function samplePoseBlueRatio(frame, pose, region) {
+  if (!frame?.imageData?.data || !pose?.center) return 0;
+  const cols = region.cols || 48;
+  const rows = region.rows || 48;
+  const data = frame.imageData.data;
+  let blue = 0;
+  let total = 0;
+  for (let row = 0; row < rows; row += 1) {
+    for (let col = 0; col < cols; col += 1) {
+      const nx = region.x + ((col + 0.5) / cols) * region.w;
+      const ny = region.y + ((row + 0.5) / rows) * region.h;
+      const p = {
+        x: pose.center.x + pose.xUnit.x * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.x * (ny - 0.5) * pose.halfH * 2,
+        y: pose.center.y + pose.xUnit.y * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.y * (ny - 0.5) * pose.halfH * 2
+      };
+      const x = Math.round(p.x);
+      const y = Math.round(p.y);
+      if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) continue;
+      const i = (y * frame.width + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (b > 100 && b > r * 1.3 && b > g * 1.1) blue += 1;
+      total += 1;
+    }
+  }
+  return total ? blue / total : 0;
+}
+
+function sampleFrameCenterBlueRatio(frame) {
+  if (!frame?.imageData?.data) return 0;
+  const data = frame.imageData.data;
+  const minX = Math.floor(frame.width * 0.30);
+  const maxX = Math.ceil(frame.width * 0.70);
+  const minY = Math.floor(frame.height * 0.30);
+  const maxY = Math.ceil(frame.height * 0.70);
+  let blue = 0;
+  let total = 0;
+  for (let y = minY; y < maxY; y += 2) {
+    for (let x = minX; x < maxX; x += 2) {
+      const i = (y * frame.width + x) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      if (b > 100 && b > r * 1.3 && b > g * 1.1) blue += 1;
+      total += 1;
+    }
+  }
+  return total ? blue / total : 0;
 }
 
 function mapVideoPointToStage(point, scanScale) {

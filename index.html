@@ -7,225 +7,105 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>AR Mini Synth Workstation</title>
-  <!-- A-Frame + AR.js 必须在 module 之前加载 -->
-  <script src="./assets/aframe.min.js?v=20260529-arjs-v1"></script>
-  <script src="./assets/aframe-ar.js?v=20260529-arjs-v1"></script>
-  <style>
-    /* ===== 基础重置 ===== */
-    body {
-      margin: 0;
-      overflow: hidden;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-      background: #000;
-    }
 
-    /* ===== 启动覆盖层 ===== */
-    .welcome-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.6);
+  <!-- 框架：A-Frame + AR.js -->
+  <script src="./assets/aframe.min.js?v=2"></script>
+  <script src="./assets/aframe-ar.js?v=2"></script>
+  <!-- 音频引擎 -->
+  <script src="./assets/audio-engine.js?v=2"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; }
+
+    /* 启动覆盖层 */
+    .start-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.6);
       backdrop-filter: blur(25px) saturate(1.8);
       -webkit-backdrop-filter: blur(25px) saturate(1.8);
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      z-index: 1000;
-      color: white;
-      text-align: center;
-      padding: 20px;
-      box-sizing: border-box;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      z-index: 1000; color: white; text-align: center; padding: 20px; box-sizing: border-box;
     }
-
-    .welcome-overlay::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      background:
-        radial-gradient(circle at 20% 30%, rgba(102, 126, 234, 0.3) 0%, transparent 50%),
-        radial-gradient(circle at 80% 70%, rgba(118, 75, 162, 0.3) 0%, transparent 50%);
-      backdrop-filter: blur(30px);
-      -webkit-backdrop-filter: blur(30px);
-      z-index: -1;
+    .start-overlay::before {
+      content: ''; position: absolute; top:0; left:0; right:0; bottom:0;
+      background: radial-gradient(circle at 20% 30%, rgba(102,126,234,0.3) 0%, transparent 50%),
+                  radial-gradient(circle at 80% 70%, rgba(118,75,162,0.3) 0%, transparent 50%);
+      backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); z-index: -1;
     }
-
-    .welcome-overlay.hidden {
-      display: none;
-    }
-
-    .welcome-title {
-      font-size: 3em;
-      margin-bottom: 10px;
-      text-shadow: 0 2px 20px rgba(0, 0, 0, 0.5);
-      font-weight: 700;
-    }
-
-    .welcome-subtitle {
-      font-size: 1.2em;
-      opacity: 0.85;
-      margin-bottom: 30px;
-      text-shadow: 0 1px 10px rgba(0, 0, 0, 0.3);
-    }
-
+    .start-overlay.hidden { display: none; }
+    .start-title { font-size: 2.4em; margin-bottom: 8px; text-shadow: 0 2px 20px rgba(0,0,0,0.5); font-weight: 700; }
+    .start-subtitle { font-size: 1.1em; opacity: 0.85; margin-bottom: 28px; text-shadow: 0 1px 10px rgba(0,0,0,0.3); }
     .start-button {
-      background: rgba(255, 255, 255, 0.12);
-      border: 1.5px solid rgba(255, 255, 255, 0.25);
-      color: white;
-      padding: 20px 50px;
-      border-radius: 50px;
-      font-size: 18px;
-      font-weight: bold;
-      cursor: pointer;
-      backdrop-filter: blur(20px) saturate(1.8);
-      -webkit-backdrop-filter: blur(20px) saturate(1.8);
-      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-      transition: all 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      background: rgba(255,255,255,0.12); border: 1.5px solid rgba(255,255,255,0.25);
+      color: white; padding: 18px 44px; border-radius: 50px; font-size: 17px; font-weight: bold;
+      cursor: pointer; backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+      transition: all 0.3s;
     }
+    .start-button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .start-hint { margin-top: 24px; font-size: 0.8em; opacity: 0.65; max-width: 280px; line-height: 1.5; }
 
-    .start-button:hover {
-      background: rgba(255, 255, 255, 0.18);
-      border-color: rgba(255, 255, 255, 0.4);
-      transform: translateY(-3px) scale(1.02);
-    }
+    /* AR 场景 */
+    #ar-scene { display: none; position: fixed; inset: 0; z-index: 1; }
+    #ar-scene.active { display: block; }
 
-    .start-button:disabled {
-      opacity: 0.55;
-      cursor: not-allowed;
-      transform: none;
-      pointer-events: none;
-    }
-
-    /* ===== AR 场景 ===== */
-    #ar-scene {
-      display: none;
-      position: fixed;
-      inset: 0;
-      z-index: 1;
-    }
-
-    #ar-scene.active {
-      display: block;
-    }
-
-    /* ===== HUD ===== */
-    .stage-hud {
-      position: fixed;
-      z-index: 10;
-      top: 12px;
-      left: 12px;
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      transition: opacity 180ms ease, transform 180ms ease;
-    }
-
-    .mode-play .stage-hud {
-      opacity: 0.22;
-    }
-
-    .mode-play .stage-hud:hover,
-    .mode-play .stage-hud:focus-within {
-      opacity: 1;
-    }
-
+    /* HUD */
+    .stage-hud { position: fixed; z-index: 10; top: 12px; left: 12px; display: flex; gap: 8px; flex-wrap: wrap; transition: opacity 0.18s; }
+    body.mode-play .stage-hud { opacity: 0.2; }
+    body.mode-play .stage-hud:hover, body.mode-play .stage-hud:focus-within { opacity: 1; }
     .small-btn {
-      min-height: 42px;
-      padding: 0 18px;
-      border: 0;
-      border-radius: 8px;
-      color: #101010;
-      background: #f7c24d;
-      font-weight: 900;
-      font-size: 14px;
-      cursor: pointer;
-      -webkit-tap-highlight-color: transparent;
+      min-height: 38px; padding: 0 14px; border: 0; border-radius: 8px;
+      color: #101010; background: #f7c24d; font-weight: 900; font-size: 13px;
+      cursor: pointer; -webkit-tap-highlight-color: transparent;
     }
 
-    /* ===== 提示文字 ===== */
+    /* 提示 */
     .stage-prompt {
-      position: fixed;
-      z-index: 10;
-      left: 50%;
-      bottom: 28px;
-      min-width: 104px;
-      padding: 10px 18px;
-      border: 1px solid rgba(99, 230, 190, 0.34);
-      border-radius: 8px;
-      color: #eafff6;
-      background: rgba(7, 13, 13, 0.62);
-      box-shadow: 0 0 24px rgba(99, 230, 190, 0.20);
-      font-size: 14px;
-      font-weight: 900;
-      text-align: center;
-      transform: translateX(-50%);
-      pointer-events: none;
-      transition: opacity 220ms ease, transform 220ms ease;
+      position: fixed; z-index: 10; left: 50%; bottom: 24px;
+      padding: 8px 16px; border: 1px solid rgba(99,230,190,0.3);
+      border-radius: 8px; color: #eafff6; background: rgba(7,13,13,0.6);
+      box-shadow: 0 0 20px rgba(99,230,190,0.15); font-size: 13px; font-weight: 900;
+      text-align: center; transform: translateX(-50%); pointer-events: none;
+      transition: opacity 0.22s, transform 0.22s;
     }
+    body.mode-play .stage-prompt { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.96); }
 
-    .mode-play .stage-prompt {
-      opacity: 0;
-      transform: translateX(-50%) translateY(10px) scale(0.96);
-    }
-
-    /* ===== 调试面板 ===== */
+    /* 调试面板 */
     .ar-debug-panel {
-      position: fixed;
-      z-index: 38;
-      right: 10px;
-      top: 10px;
-      width: min(360px, calc(100vw - 20px));
-      max-height: 46vh;
-      overflow: auto;
-      padding: 10px 12px;
-      border: 1px solid rgba(99, 230, 190, 0.45);
-      border-radius: 8px;
-      color: #dcfff4;
-      background: rgba(2, 7, 9, 0.78);
-      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 11px;
-      line-height: 1.42;
-      pointer-events: none;
+      position: fixed; z-index: 38; right: 8px; top: 8px;
+      width: min(340px, calc(100vw - 16px)); max-height: 44vh; overflow: auto;
+      padding: 8px 10px; border: 1px solid rgba(99,230,190,0.4);
+      border-radius: 8px; color: #dcfff4; background: rgba(2,7,9,0.75);
+      box-shadow: 0 10px 28px rgba(0,0,0,0.4);
+      font-family: ui-monospace, monospace; font-size: 10px; line-height: 1.4; pointer-events: none;
     }
-
-    .ar-debug-panel b {
-      color: #f7c24d;
-    }
-
-    /* ===== 响应式 ===== */
-    @media (max-width: 480px) {
-      .welcome-title { font-size: 2em; }
-      .welcome-subtitle { font-size: 1em; }
-    }
+    .ar-debug-panel b { color: #f7c24d; }
+    @media (max-width: 480px) { .start-title { font-size: 1.6em; } .start-subtitle { font-size: 0.9em; } }
   </style>
 </head>
 <body>
 
   <!-- 启动覆盖层 -->
-  <div id="welcome-overlay" class="welcome-overlay">
-    <div class="welcome-title">AR Mini Synth Workstation</div>
-    <div class="welcome-subtitle">对准乐器卡，AR 乐器实时叠加</div>
-    <button id="start-ar" class="start-button" type="button" onclick="window._startAR && window._startAR()">✨ 启动 AR 体验</button>
-    <div style="margin-top: 30px; font-size: 0.85em; opacity: 0.7; max-width: 320px; line-height: 1.6;">
-      💡 提示：请允许摄像头权限<br>将合成器/鼓机卡片对准镜头
-    </div>
+  <div id="start-overlay" class="start-overlay">
+    <div class="start-title">AR Mini Synth Workstation</div>
+    <div class="start-subtitle">对准乐器识别卡，AR 乐器实时叠加</div>
+    <button id="start-ar-btn" class="start-button" type="button"
+            onclick="window._handleStart && window._handleStart()">✨ 启动 AR 体验</button>
+    <div class="start-hint">💡 请允许摄像头权限<br>将合成器/鼓机卡片对准镜头</div>
   </div>
 
   <!-- HUD -->
   <div class="stage-hud" id="stage-hud">
-    <button class="small-btn" id="reset-view" type="button">重置视角</button>
+    <button class="small-btn" id="reset-view-btn" type="button">重置视角</button>
   </div>
 
   <!-- 提示 -->
-  <div class="stage-prompt" id="stage-prompt">请点击启动</div>
+  <div class="stage-prompt" id="stage-prompt">请点击"启动 AR 体验"</div>
 
   <!-- 调试面板 -->
-  <div class="ar-debug-panel" id="ar-debug-panel" aria-label="AR 调试信息"></div>
+  <div class="ar-debug-panel" id="ar-debug-panel"></div>
 
-  <!-- AR 场景 -->
+  <!-- AR 场景 — A-Frame 负责摄像头、渲染、标记跟踪 -->
   <a-scene
     id="ar-scene"
     embedded
@@ -233,15 +113,788 @@
     renderer="logarithmicDepthBuffer: true; alpha: true;"
     arjs="sourceType: webcam; debugUIEnabled: false; patternRatio: 0.5; labelingMode: black_region;">
 
-    <a-marker id="marker-synth" type="pattern" url="./assets/markers/synth.patt"
-              instrument-marker="instrument: synth"></a-marker>
+    <!-- 合成器标记 -->
+    <a-marker id="marker-synth" type="pattern" url="./assets/markers/synth.patt" size="0.15">
+      <a-entity class="instrument-world" synth-model visible="false"></a-entity>
+    </a-marker>
 
-    <a-marker id="marker-drum" type="pattern" url="./assets/markers/drum.patt"
-              instrument-marker="instrument: drum"></a-marker>
+    <!-- 鼓机标记 -->
+    <a-marker id="marker-drum" type="pattern" url="./assets/markers/drum.patt" size="0.15">
+      <a-entity class="instrument-world" drum-model visible="false"></a-entity>
+    </a-marker>
 
     <a-entity camera></a-entity>
   </a-scene>
 
-  <script type="module" src="./assets/app.js?v=20260529-arjs-v1"></script>
+  <script>
+  /* ================================================================
+     AR Synth Workstation — A-Frame Components + Startup Logic
+     模型作为 marker 子元素，A-Frame 自动处理位置/旋转
+     ================================================================ */
+
+  (function () {
+    "use strict";
+
+    var $ = function (s) { return document.querySelector(s); };
+    var A = window.__audio;
+    var BUILD_ID = "20260530-aoyuar-v1";
+
+    // ---- 工具函数 ----
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+
+    function makeMaterial(opts) {
+      return new THREE.MeshStandardMaterial({
+        color: opts.color || 0xffffff,
+        emissive: opts.emissive || 0x000000,
+        emissiveIntensity: opts.emissiveIntensity || (opts.emissive ? 0.4 : 0),
+        roughness: opts.roughness !== undefined ? opts.roughness : 0.62,
+        metalness: opts.metalness !== undefined ? opts.metalness : 0.1,
+        transparent: !!opts.transparent, opacity: opts.opacity !== undefined ? opts.opacity : 1
+      });
+    }
+
+    function labelTexture(lines, opts) {
+      opts = opts || {};
+      var w = opts.width || 256, h = opts.height || 96;
+      var c = document.createElement("canvas"); c.width = w; c.height = h;
+      var ctx = c.getContext("2d");
+      ctx.clearRect(0, 0, w, h);
+      if (opts.background) { ctx.fillStyle = opts.background; ctx.fillRect(0, 0, w, h); }
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillStyle = opts.color || "#f6fff8";
+      var list = Array.isArray(lines) ? lines : [lines];
+      var fs = opts.fontSize || (list.length > 1 ? 26 : 34);
+      ctx.font = "800 " + fs + "px Arial, PingFang SC, Microsoft YaHei, sans-serif";
+      var step = h / (list.length + 1);
+      list.forEach(function (line, i) { ctx.fillText(line, w / 2, step * (i + 1)); });
+      var tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function addLabel(parent, text, x, y, z, w, h, opts) {
+      var mat = new THREE.MeshBasicMaterial({ map: labelTexture(text, opts), transparent: true, depthWrite: false });
+      var mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
+      mesh.position.set(x, y, z); parent.add(mesh); return mesh;
+    }
+
+    // ---- 全局状态 ----
+    var ui = { presetBtns: {}, waveBtns: {}, perfBtns: {}, keys: {}, faders: {}, knobs: {}, strips: {} };
+    var screenMat = null, drumScreenMat = null, drumControlMeshes = {};
+    var interactives = [];
+    var dragState = null;
+    var activePointers = {};
+    var activeTouchPts = {};
+    var transformGesture = null;
+    var userScale = 1;
+    var activeInstrument = null;   // 'synth' | 'drum' | null
+    var activeWorldEl = null;     // the <a-entity class="instrument-world"> currently visible
+    var activeModelRoot = null;   // the THREE.Group root of the active model
+    var raycaster = new THREE.Raycaster();
+    var pointer = new THREE.Vector2();
+    var aframeCanvas = null;
+
+    // ---- Debug ----
+    var arDebug = { BUILD_ID: BUILD_ID, markerFound: false, shownModel: "none" };
+    function updateDebug(obj) {
+      Object.assign(arDebug, obj);
+      arDebug.shownModel = activeInstrument || "none";
+      var panel = $("#ar-debug-panel"); if (!panel) return;
+      panel.innerHTML = Object.entries(arDebug).map(function (e) {
+        return "<div><b>" + e[0] + "</b>: " + String(e[1]) + "</div>";
+      }).join("");
+    }
+
+    function setPrompt(text) {
+      var el = $("#stage-prompt"); if (el) el.textContent = text;
+    }
+
+    // ============================================================
+    // Synth Model Builder
+    // ============================================================
+    function buildSynthModel(root, parentEl) {
+      var bodyMat = makeMaterial({ color: 0x141a22, roughness: 0.55, metalness: 0.32 });
+      var sideMat = makeMaterial({ color: 0x07090d, roughness: 0.72, metalness: 0.22 });
+      var panelMat = makeMaterial({ color: 0x1c2632, roughness: 0.48, metalness: 0.36 });
+
+      var base = new THREE.Mesh(new THREE.BoxGeometry(5.55, 2.32, 0.30), bodyMat);
+      base.position.set(0, -0.12, -0.08); root.add(base);
+
+      var backLip = new THREE.Mesh(new THREE.BoxGeometry(5.55, 0.16, 0.36), sideMat);
+      backLip.position.set(0, 1.02, 0.06); root.add(backLip);
+
+      var panel = new THREE.Group();
+      panel.position.set(0, 0.43, 0.10); panel.rotation.x = -0.18; root.add(panel);
+
+      var plate = new THREE.Mesh(new THREE.BoxGeometry(5.30, 1.16, 0.18), panelMat);
+      plate.position.set(0, 0, 0); panel.add(plate);
+
+      addLabel(panel, "AR MINI SYNTH WORKSTATION", 0, 0.48, 0.112, 2.4, 0.14, { fontSize: 20, color: "#dbfff5" });
+
+      // Preset buttons
+      addLabel(panel, "PRESET", -2.08, 0.31, 0.18, 0.86, 0.13, { fontSize: 18, color: "#9cecff" });
+      var presets = [["SYNTH", -2.08, 0.10, 0x3aa6ff], ["GUITAR", -2.08, -0.16, 0x39e59f], ["DRUM", -2.08, -0.42, 0xffa23a], ["BASS", -2.08, -0.68, 0xb26bff]];
+      presets.forEach(function (p) { createBtn(panel, p[0], p[1], p[2], p[3], { kind: "preset", id: p[0] }, { w: 0.78, h: 0.22 }); ui.presetBtns[p[0]] = true; });
+
+      // Wave buttons
+      addLabel(panel, "WAVE", -1.15, 0.31, 0.18, 0.78, 0.13, { fontSize: 18, color: "#9cecff" });
+      var waves = [["SAW", -1.15, 0.10, 0x3aa6ff], ["SQUARE", -1.15, -0.18, 0xb26bff], ["SINE", -1.15, -0.46, 0x39e59f]];
+      waves.forEach(function (w) { createBtn(panel, w[0], w[1], w[2], w[3], { kind: "wave", id: w[0] }, { w: 0.78, h: 0.22 }); ui.waveBtns[w[0]] = true; });
+
+      // Filter knobs
+      addLabel(panel, "FILTER", -0.12, 0.31, 0.18, 0.76, 0.13, { fontSize: 18, color: "#9cecff" });
+      ui.knobs.cutoff = createKnob(panel, "CUTOFF", -0.32, -0.06, 0.27, A.state.cutoff, 0x3aa6ff, "cutoff");
+      ui.knobs.reso = createKnob(panel, "RESO", 0.28, -0.06, 0.20, A.state.reso, 0xffa23a, "reso");
+
+      // Faders
+      addLabel(panel, "ENVELOPE / FX", 1.33, 0.31, 0.18, 1.46, 0.13, { fontSize: 18, color: "#9cecff" });
+      A.FADERS.forEach(function (item, i) {
+        var x = 0.62 + i * 0.29;
+        ui.faders[item.id] = createFader(panel, item.label, x, -0.18, item.color, item.id, item.value);
+      });
+
+      // Performance buttons
+      var perfPos = [-0.36, 0.04, 0.44];
+      ["GLIDE", "ARP", "HOLD"].forEach(function (id, i) {
+        ui.perfBtns[id] = createBtn(panel, id, perfPos[i], -0.68, 0x63e6be, { kind: "performance", id: id }, { w: 0.34, h: 0.22 });
+      });
+
+      // Screen
+      var scr = new THREE.Mesh(new THREE.BoxGeometry(1.00, 0.46, 0.07), makeMaterial({ color: 0x061211, emissive: 0x113a31, roughness: 0.22 }));
+      scr.position.set(2.18, 0.03, 0.16); panel.add(scr);
+      screenMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+      var disp = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.34), screenMat);
+      disp.position.set(2.18, 0.03, 0.22); panel.add(disp);
+
+      // Touch strips
+      var strips = [["PITCH", -2.55, -0.24, 0xffdf6e], ["MOD", -2.55, -0.62, 0x63e6be]];
+      strips.forEach(function (s) { createStrip(panel, s[0], s[1], s[2], s[3]); });
+
+      // Keyboard
+      var kbBase = new THREE.Mesh(new THREE.BoxGeometry(5.18, 0.96, 0.16), makeMaterial({ color: 0x07090d, roughness: 0.58, metalness: 0.28 }));
+      kbBase.position.set(0.12, -0.72, 0.08); root.add(kbBase);
+      addLabel(root, "25 KEY TOUCH SYNTH", 1.54, -1.20, 0.28, 1.35, 0.12, { fontSize: 18, color: "#9cecff" });
+      createBtn(root, "OCT -", -2.28, -1.16, 0xffdf6e, { kind: "octave", semitoneDelta: -12 }, { w: 0.45, h: 0.18 });
+      createBtn(root, "OCT +", -1.72, -1.16, 0xffdf6e, { kind: "octave", semitoneDelta: 12 }, { w: 0.45, h: 0.18 });
+
+      var startMidi = 48, endMidi = 72;
+      var whiteCount = 0;
+      for (var m = startMidi; m <= endMidi; m++) { if (A.WHITE_PCS.has(m % 12)) whiteCount++; }
+      var whiteW = 4.84 / whiteCount;
+      var wi = 0;
+      for (var midi = startMidi; midi <= endMidi; midi++) {
+        var pc = midi % 12;
+        if (A.WHITE_PCS.has(pc)) {
+          var wx = (wi - (whiteCount - 1) / 2) * whiteW + 0.15;
+          var key = new THREE.Mesh(new THREE.BoxGeometry(whiteW * 0.92, 0.78, 0.12), makeMaterial({ color: 0xf5f0df, roughness: 0.38, metalness: 0.05 }));
+          key.position.set(wx, -0.78, 0.22);
+          key.userData = { baseColor: 0xf5f0df, activeColor: 0x3aa6ff, baseZ: 0.22, midi: midi };
+          root.add(key); addInteractive(key, { kind: "key", midi: midi }); ui.keys[midi] = key;
+          if (A.NOTE_NAMES[pc] === "C") addLabel(root, "C" + (Math.floor(midi / 12) - 1), wx, -1.11, 0.31, whiteW * 0.70, 0.10, { fontSize: 18, color: "#10131a" });
+          wi++;
+        } else {
+          var bx = (wi - 1 - (whiteCount - 1) / 2) * whiteW + whiteW * 0.48 + 0.15;
+          var bkey = new THREE.Mesh(new THREE.BoxGeometry(whiteW * 0.58, 0.47, 0.16), makeMaterial({ color: 0x05070a, roughness: 0.42, metalness: 0.1 }));
+          bkey.position.set(bx, -0.59, 0.34);
+          bkey.userData = { baseColor: 0x05070a, activeColor: 0xb26bff, baseZ: 0.34, midi: midi };
+          root.add(bkey); addInteractive(bkey, { kind: "key", midi: midi }); ui.keys[midi] = bkey;
+        }
+      }
+
+      updateSynthDisplay("SYNTH", "SAW", "READY");
+    }
+
+    // ============================================================
+    // Drum Model Builder
+    // ============================================================
+    function buildDrumModel(root) {
+      drumControlMeshes = {};
+      var baseMat = makeMaterial({ color: 0x101821, roughness: 0.54, metalness: 0.38 });
+      var sideMat = makeMaterial({ color: 0x05080d, roughness: 0.62, metalness: 0.30 });
+      var panelMat = makeMaterial({ color: 0x17202a, roughness: 0.46, metalness: 0.42 });
+
+      var base = new THREE.Mesh(new THREE.BoxGeometry(5.65, 2.20, 0.32), baseMat);
+      base.position.set(0, -0.08, -0.10); root.add(base);
+
+      var fl = new THREE.Mesh(new THREE.BoxGeometry(5.70, 0.18, 0.28), sideMat);
+      fl.position.set(0, -1.10, 0.04); root.add(fl);
+
+      var panel = new THREE.Group();
+      panel.position.set(0, 0.08, 0.14); panel.rotation.x = -0.15; root.add(panel);
+
+      var plate = new THREE.Mesh(new THREE.BoxGeometry(5.34, 1.78, 0.18), panelMat);
+      plate.position.set(0, 0, 0); panel.add(plate);
+
+      addLabel(panel, "QR DRUM MACHINE", -1.75, 0.72, 0.16, 1.55, 0.15, { fontSize: 22, color: "#dbfff5" });
+
+      var pads = [
+        ["kick", "Kick", -1.92, 0.38, 0xff6b3a], ["snare", "Snare", -1.20, 0.38, 0x3aa6ff],
+        ["clap", "Clap", -0.48, 0.38, 0xffdf6e], ["rim", "Rim", 0.24, 0.38, 0xb26bff],
+        ["hat", "Hi-Hat", -1.92, -0.16, 0x63e6be], ["hatOpen", "Open Hat", -1.20, -0.16, 0x63e6be],
+        ["tom", "Tom", -0.48, -0.16, 0xffa23a], ["crash", "Crash", 0.24, -0.16, 0xf45cff]
+      ];
+      pads.forEach(function (p) { createDrumPad(panel, p[0], p[1], p[2], p[3], p[4]); });
+
+      createDrumBtn(panel, "PLAY", 0.95, -0.62, 0x32c7ff);
+      createDrumBtn(panel, "STOP", 1.55, -0.62, 0xffdf6e);
+      createDrumBtn(panel, "REC", 2.15, -0.62, 0xff5a66);
+
+      var scr = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.44, 0.08), makeMaterial({ color: 0x051311, emissive: 0x0b4639, roughness: 0.22 }));
+      scr.position.set(2.05, 0.48, 0.17); panel.add(scr);
+      drumScreenMat = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
+      var disp = new THREE.Mesh(new THREE.PlaneGeometry(1.02, 0.32), drumScreenMat);
+      disp.position.set(2.05, 0.48, 0.23); panel.add(disp);
+
+      var knobs = [
+        ["tone", "TONE", 1.28, 0.06, 0x3aa6ff], ["decay", "DECAY", 1.78, 0.06, 0xffdf6e],
+        ["drive", "DRIVE", 2.28, 0.06, 0xffa23a], ["space", "SPACE", 1.54, -0.32, 0xb26bff],
+        ["level", "LEVEL", 2.06, -0.32, 0x63e6be]
+      ];
+      knobs.forEach(function (k) { createDrumKnob(panel, k[0], k[1], k[2], k[3], k[4]); });
+
+      updateDrumDisplay("QR DRUM", "128 BPM", "READY");
+    }
+
+    // ---- UI element factories ----
+    function addInteractive(mesh, interaction) { mesh.userData.interaction = interaction; interactives.push(mesh); }
+
+    function createBtn(parent, label, x, y, color, interaction, size) {
+      size = size || { w: 0.58, h: 0.22 };
+      var mat = makeMaterial({ color: 0x26313e, roughness: 0.42, metalness: 0.25 });
+      var mesh = new THREE.Mesh(new THREE.BoxGeometry(size.w, size.h, 0.08), mat);
+      mesh.position.set(x, y, 0.13);
+      mesh.userData = { baseColor: 0x26313e, activeColor: color, isActive: false };
+      parent.add(mesh); addInteractive(mesh, interaction);
+      addLabel(parent, label, x, y, 0.18, size.w * 0.9, size.h * 0.7, { fontSize: 26, color: "#f6fff8" });
+      return mesh;
+    }
+
+    function createKnob(parent, label, x, y, radius, value, color, id) {
+      var group = new THREE.Group(); group.position.set(x, y, 0.16); parent.add(group);
+      var base = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.09, 36), makeMaterial({ color: 0x0a0d12, emissive: color, roughness: 0.34, metalness: 0.45 }));
+      base.rotation.x = Math.PI / 2; group.add(base);
+      var ind = new THREE.Mesh(new THREE.BoxGeometry(radius * 0.10, radius * 0.82, 0.026), makeMaterial({ color: color, emissive: color }));
+      ind.position.set(0, radius * 0.26, 0.07); group.add(ind);
+      var hit = new THREE.Mesh(new THREE.BoxGeometry(radius * 2.25, radius * 2.25, 0.04), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+      hit.position.set(x, y, 0.24); parent.add(hit); addInteractive(hit, { kind: "knob", id: id });
+      addLabel(parent, label, x, y - radius - 0.16, 0.20, radius * 2.2, 0.13, { fontSize: 18, color: "#f6fff8" });
+      var knob = { group: group, indicator: ind, value: value, color: color };
+      updateKnobVis(knob); return knob;
+    }
+
+    function updateKnobVis(k) {
+      var angle = lerp(-2.25, 2.25, k.value); k.indicator.rotation.z = -angle;
+      k.group.children[0].material.emissiveIntensity = 0.12 + k.value * 0.7;
+    }
+
+    function createFader(parent, label, x, y, color, id, value) {
+      var len = 0.58;
+      var track = new THREE.Mesh(new THREE.BoxGeometry(0.05, len, 0.035), makeMaterial({ color: 0x070b10 }));
+      track.position.set(x, y, 0.17); parent.add(track);
+      var fill = new THREE.Mesh(new THREE.BoxGeometry(0.062, len, 0.02), makeMaterial({ color: color, emissive: color, transparent: true, opacity: 0.42 }));
+      fill.position.set(x, y, 0.19); parent.add(fill);
+      var thumb = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.09, 0.065), makeMaterial({ color: color, emissive: color, roughness: 0.3 }));
+      parent.add(thumb);
+      var hit = new THREE.Mesh(new THREE.BoxGeometry(0.25, len + 0.14, 0.04), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+      hit.position.set(x, y, 0.25); parent.add(hit); addInteractive(hit, { kind: "fader", id: id });
+      addLabel(parent, label, x, y - len / 2 - 0.15, 0.20, 0.22, 0.12, { fontSize: 20, color: "#f6fff8" });
+      var fader = { x: x, y: y, length: len, thumb: thumb, fill: fill, value: value, color: color };
+      updateFaderVis(fader); return fader;
+    }
+
+    function updateFaderVis(f) {
+      f.thumb.position.set(f.x, f.y - f.length / 2 + f.value * f.length, 0.24);
+      f.fill.scale.y = Math.max(0.04, f.value);
+      f.fill.position.y = f.y - f.length / 2 + (f.length * f.value) / 2;
+      f.thumb.material.emissiveIntensity = 0.18 + f.value * 0.75;
+    }
+
+    function createStrip(parent, id, x, y, color) {
+      var track = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.30, 0.05), makeMaterial({ color: 0x0a0e13, emissive: color }));
+      track.position.set(x, y, 0.19); parent.add(track);
+      var fill = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.06, 0.05), makeMaterial({ color: color, emissive: color }));
+      fill.position.set(x, y, 0.24); parent.add(fill);
+      var hit = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.42, 0.04), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+      hit.position.set(x, y, 0.28); parent.add(hit); addInteractive(hit, { kind: "strip", id: id });
+      addLabel(parent, id, x + 0.30, y, 0.21, 0.36, 0.12, { fontSize: 18, color: "#f6fff8" });
+      ui.strips[id] = { fill: fill, centerY: y, color: color, value: id === "PITCH" ? 0.5 : 0 };
+      updateStripVis(id);
+    }
+
+    function updateStripVis(id) {
+      var s = ui.strips[id]; if (!s) return;
+      s.fill.position.y = s.centerY - 0.12 + s.value * 0.24;
+      s.fill.material.emissiveIntensity = 0.18 + s.value * 0.9;
+    }
+
+    function createDrumPad(parent, id, label, x, y, color) {
+      var pad = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.40, 0.10), makeMaterial({ color: 0x202b36, roughness: 0.40, metalness: 0.18 }));
+      pad.position.set(x, y, 0.16);
+      pad.userData = { baseColor: 0x202b36, activeColor: color, baseZ: 0.16 };
+      parent.add(pad); addInteractive(pad, { kind: "drumPad", id: id });
+      addLabel(parent, label, x, y, 0.23, 0.52, 0.12, { fontSize: 22, color: "#f6fff8" });
+    }
+
+    function createDrumBtn(parent, label, x, y, color) {
+      var mesh = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.09), makeMaterial({ color: 0x273241, emissive: color, roughness: 0.36, metalness: 0.25 }));
+      mesh.position.set(x, y, 0.18);
+      mesh.userData = { baseColor: 0x273241, activeColor: color };
+      parent.add(mesh); addInteractive(mesh, { kind: "drumButton", label: label });
+      addLabel(parent, label, x, y, 0.25, 0.38, 0.11, { fontSize: 22, color: "#ffffff" });
+    }
+
+    function createDrumKnob(parent, id, label, x, y, color) {
+      var value = A.drumControls[id] || 0.5;
+      var g = new THREE.Group(); g.position.set(x, y, 0.18); parent.add(g);
+      var base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.08, 32), makeMaterial({ color: 0x0a0d12, emissive: color, roughness: 0.34, metalness: 0.45 }));
+      base.rotation.x = Math.PI / 2; g.add(base);
+      var ind = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.13, 0.024), makeMaterial({ color: color, emissive: color }));
+      ind.position.set(0, 0.05, 0.06); g.add(ind);
+      var hit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.04), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
+      hit.position.set(x, y, 0.26); parent.add(hit); addInteractive(hit, { kind: "drumKnob", id: id });
+      addLabel(parent, label, x, y - 0.26, 0.22, 0.36, 0.10, { fontSize: 16, color: "#f6fff8" });
+      var knob = { group: g, indicator: ind, value: value, color: color };
+      drumControlMeshes[id] = knob; updateDrumKnobVis(knob);
+    }
+
+    function updateDrumKnobVis(k) {
+      var angle = lerp(-2.10, 2.10, k.value); k.indicator.rotation.z = -angle;
+      k.group.children[0].material.emissiveIntensity = 0.16 + k.value * 0.72;
+    }
+
+    function updateSynthDisplay(l1, l2, l3) {
+      if (!screenMat) return;
+      var tex = labelTexture([l1, l2, l3].filter(Boolean), { width: 512, height: 192, background: "#04110f", color: "#63e6be", fontSize: 34 });
+      if (screenMat.map) screenMat.map.dispose();
+      screenMat.map = tex; screenMat.needsUpdate = true;
+    }
+
+    function updateDrumDisplay(l1, l2, l3) {
+      if (!drumScreenMat) return;
+      var tex = labelTexture([l1, l2, l3].filter(Boolean), { width: 512, height: 192, background: "#04110f", color: "#63e6be", fontSize: 34 });
+      if (drumScreenMat.map) drumScreenMat.map.dispose();
+      drumScreenMat.map = tex; drumScreenMat.needsUpdate = true;
+    }
+
+    function setBtnActive(mesh, active, color) {
+      if (!mesh) return;
+      mesh.userData.isActive = active;
+      mesh.material.color.setHex(active ? color : mesh.userData.baseColor);
+      mesh.material.emissive.setHex(active ? color : 0x000000);
+      mesh.material.emissiveIntensity = active ? 0.8 : 0.04;
+    }
+
+    function flashKey(key, active) {
+      if (!key || !key.userData || key.userData.baseColor === undefined) return;
+      var d = key.userData;
+      key.position.z = active ? d.baseZ - 0.025 : d.baseZ;
+      key.material.color.setHex(active ? d.activeColor : d.baseColor);
+      key.material.emissive.setHex(active ? d.activeColor : 0x000000);
+      key.material.emissiveIntensity = active ? 0.45 : 0.05;
+    }
+
+    function flashDrumPad(pad, active) {
+      if (!pad || !pad.userData || pad.userData.baseColor === undefined) return;
+      var d = pad.userData;
+      pad.position.z = active ? d.baseZ - 0.018 : d.baseZ;
+      pad.material.color.setHex(active ? d.activeColor : d.baseColor);
+      pad.material.emissive.setHex(active ? d.activeColor : 0x000000);
+      pad.material.emissiveIntensity = active ? 0.62 : 0.05;
+    }
+
+    function isDescendantOf(obj, parent) {
+      while (obj) { if (obj === parent) return true; obj = obj.parent; }
+      return false;
+    }
+
+    // ============================================================
+    // Interaction
+    // ============================================================
+    function playKey(midi, obj, ptrId) {
+      A.unlockAudio();
+      var adj = midi + A.state.octaveShift;
+      flashKey(obj, true);
+
+      if (A.state.arp && A.state.currentMode === "drum") {
+        ["kick", "hat", "snare", "hatOpen", "tom", "crash"].forEach(function (id, i) {
+          setTimeout(function () { A.playDrum(id, 0.68); updateDrumDisplay("DRUM KIT", id.toUpperCase(), "ARP"); }, i * 105);
+        });
+        setTimeout(function () { flashKey(obj, false); }, 180);
+        return;
+      }
+
+      if (A.state.arp && A.state.currentMode !== "guitar") {
+        [0, 4, 7, 12].forEach(function (off, i) {
+          setTimeout(function () {
+            var v = A.triggerByMode(adj + off, 0.68);
+            if (v) setTimeout(function () { A.releaseVoice(v); }, A.state.currentMode === "bass" ? 260 : 210);
+          }, i * 105);
+        });
+        setTimeout(function () { flashKey(obj, false); }, 180);
+        return;
+      }
+
+      var voice = A.triggerByMode(adj, 0.82);
+      if (voice && !A.state.hold) {
+        activePointers[ptrId] = { voice: voice, key: obj };
+      } else if (voice) {
+        setTimeout(function () { A.releaseVoice(voice); }, 1700);
+        setTimeout(function () { flashKey(obj, false); }, 180);
+      } else {
+        setTimeout(function () { flashKey(obj, false); }, 160);
+      }
+    }
+
+    function handleControl(inter, hit, event) {
+      if (!inter) return;
+      A.unlockAudio();
+
+      if (inter.kind === "drumPad") {
+        flashDrumPad(hit.object, true); A.playDrum(inter.id, 0.88);
+        updateDrumDisplay("QR DRUM", inter.id.toUpperCase(), "HIT");
+        setTimeout(function () { flashDrumPad(hit.object, false); }, 150);
+        return;
+      }
+      if (inter.kind === "drumButton") {
+        flashDrumPad(hit.object, true);
+        if (inter.label === "PLAY") playDrumPattern();
+        else if (inter.label === "STOP") updateDrumDisplay("QR DRUM", "STOP", "READY");
+        else if (inter.label === "REC") updateDrumDisplay("QR DRUM", "REC", "READY");
+        setTimeout(function () { flashDrumPad(hit.object, false); }, 150);
+        return;
+      }
+      if (inter.kind === "preset") {
+        var preset = A.PRESETS[inter.id]; if (!preset) return;
+        A.state.currentPreset = inter.id; A.state.currentMode = preset.mode;
+        Object.keys(ui.presetBtns).forEach(function (k) { setBtnActive(ui.presetBtns[k], k === inter.id, A.PRESETS[k].color); });
+        updateSynthDisplay(inter.id === "DRUM" ? "DRUM KIT" : inter.id, inter.id === "SYNTH" || inter.id === "BASS" ? A.state.currentWave : "PRESET", "READY");
+        return;
+      }
+      if (inter.kind === "wave") {
+        var w = A.WAVES[inter.id]; if (!w) return;
+        A.state.currentWave = inter.id;
+        Object.keys(ui.waveBtns).forEach(function (k) { setBtnActive(ui.waveBtns[k], k === inter.id, A.WAVES[k].color); });
+        updateSynthDisplay(A.state.currentPreset, inter.id, "READY");
+        return;
+      }
+      if (inter.kind === "performance") {
+        if (inter.id === "GLIDE") A.state.glide = !A.state.glide;
+        if (inter.id === "ARP") A.state.arp = !A.state.arp;
+        if (inter.id === "HOLD") A.state.hold = !A.state.hold;
+        Object.keys(ui.perfBtns).forEach(function (k) {
+          var act = (k === "GLIDE" && A.state.glide) || (k === "ARP" && A.state.arp) || (k === "HOLD" && A.state.hold);
+          setBtnActive(ui.perfBtns[k], act, 0x63e6be);
+        });
+        return;
+      }
+      if (inter.kind === "octave") {
+        A.state.octaveShift = clamp(A.state.octaveShift + inter.semitoneDelta, -24, 24);
+        updateSynthDisplay(A.state.currentPreset, A.state.currentWave, "OCT " + (A.state.octaveShift / 12));
+        return;
+      }
+      if (inter.kind === "key") { playKey(inter.midi, hit.object, event.pointerId); return; }
+      if (inter.kind === "fader" || inter.kind === "knob" || inter.kind === "strip" || inter.kind === "drumKnob") {
+        dragState = { kind: inter.kind, id: inter.id, lastX: event.clientX, lastY: event.clientY };
+        updateDrag(event);
+      }
+    }
+
+    function updateDrag(event) {
+      if (!dragState) return;
+      var dx = event.clientX - dragState.lastX, dy = event.clientY - dragState.lastY;
+      dragState.lastX = event.clientX; dragState.lastY = event.clientY;
+      var delta = (-dy + dx * 0.45) / 180;
+
+      if (dragState.kind === "fader") {
+        var f = ui.faders[dragState.id]; if (!f) return;
+        f.value = clamp(f.value + delta, 0, 1); A.state.faders[dragState.id] = f.value;
+        updateFaderVis(f);
+        if (dragState.id === "VOL" && A.__volGain) A.__volGain.setTargetAtTime(f.value, A._ctxTime(), 0.02);
+        updateSynthDisplay(A.state.currentPreset, A.state.currentWave, dragState.id + " " + Math.round(f.value * 100));
+      }
+      if (dragState.kind === "knob") {
+        var k = ui.knobs[dragState.id]; if (!k) return;
+        k.value = clamp(k.value + delta, 0, 1);
+        if (dragState.id === "cutoff") A.state.cutoff = k.value;
+        if (dragState.id === "reso") A.state.reso = k.value;
+        updateKnobVis(k);
+        updateSynthDisplay(A.state.currentPreset, A.state.currentWave, dragState.id.toUpperCase() + " " + Math.round(k.value * 100));
+      }
+      if (dragState.kind === "strip") {
+        var s = ui.strips[dragState.id]; if (!s) return;
+        s.value = clamp(s.value + (-dy / 160), 0, 1);
+        if (dragState.id === "PITCH") A.state.pitchBend = (s.value - 0.5) * 2;
+        if (dragState.id === "MOD") A.state.mod = s.value;
+        updateStripVis(dragState.id);
+      }
+      if (dragState.kind === "drumKnob") {
+        var dk = drumControlMeshes[dragState.id]; if (!dk) return;
+        dk.value = clamp(dk.value + delta, 0, 1); A.drumControls[dragState.id] = dk.value;
+        updateDrumKnobVis(dk);
+        updateDrumDisplay("QR DRUM", dragState.id.toUpperCase(), Math.round(dk.value * 100));
+      }
+    }
+
+    function playDrumPattern() {
+      var pat = [["kick",0],["hat",120],["snare",240],["hat",360],["kick",480],["hatOpen",600],["snare",720],["crash",840]];
+      pat.forEach(function (p) {
+        setTimeout(function () { A.playDrum(p[0], 0.76); updateDrumDisplay("QR DRUM", p[0].toUpperCase(), "PLAY"); }, p[1]);
+      });
+    }
+
+    // ---- Touch gestures ----
+    function rememberTouch(event) { activeTouchPts[event.pointerId] = { x: event.clientX, y: event.clientY }; }
+    function getTwoPts() { return Object.values(activeTouchPts).slice(0, 2); }
+    function ptrDist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+    function beginTransform() {
+      var pts = getTwoPts(); if (pts.length < 2) return;
+      Object.values(activePointers).forEach(function (h) { if (h.voice) A.releaseVoice(h.voice, { force: true }); });
+      activePointers = {};
+      dragState = null;
+      transformGesture = { startDist: Math.max(1, ptrDist(pts[0], pts[1])), startScale: userScale };
+      updateSynthDisplay(A.state.currentPreset, A.state.currentWave, "SCALE " + Math.round(userScale * 100));
+    }
+
+    function updateTransform() {
+      if (Object.keys(activeTouchPts).length < 2) return;
+      if (!transformGesture) beginTransform();
+      var pts = getTwoPts(); if (pts.length < 2 || !transformGesture) return;
+      var dist = Math.max(1, ptrDist(pts[0], pts[1]));
+      userScale = clamp(transformGesture.startScale * dist / transformGesture.startDist, 0.85, 3.4);
+      if (activeModelRoot) {
+        var s = userScale * 0.045;
+        activeModelRoot.scale.set(s, s, s);
+      }
+      updateSynthDisplay(A.state.currentPreset, A.state.currentWave, "SCALE " + Math.round(userScale * 100));
+    }
+
+    // ---- Canvas events ----
+    function bindCanvas(canvas) {
+      if (!canvas || aframeCanvas) return;
+      aframeCanvas = canvas;
+
+      canvas.addEventListener("pointerdown", function (event) {
+        event.preventDefault();
+        try { canvas.setPointerCapture(event.pointerId); } catch (e) {}
+        rememberTouch(event);
+        if (Object.keys(activeTouchPts).length >= 2) { beginTransform(); return; }
+        if (!activeInstrument) { A.unlockAudio(); setPrompt("请先对准乐器识别卡"); return; }
+        var rect = canvas.getBoundingClientRect();
+        pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        var cam = document.getElementById("ar-scene").camera;
+        raycaster.setFromCamera(pointer, cam);
+        var hits = raycaster.intersectObjects(interactives, false);
+        var hit = null;
+        for (var i = 0; i < hits.length; i++) {
+          if (hits[i].object.visible !== false && activeModelRoot && isDescendantOf(hits[i].object, activeModelRoot)) {
+            hit = hits[i]; break;
+          }
+        }
+        if (hit) handleControl(hit.object.userData.interaction, hit, event);
+      }, { passive: false });
+
+      canvas.addEventListener("pointermove", function (event) {
+        if (activeTouchPts[event.pointerId]) rememberTouch(event);
+        if (Object.keys(activeTouchPts).length >= 2) { event.preventDefault(); updateTransform(); return; }
+        if (!dragState) return;
+        event.preventDefault(); updateDrag(event);
+      }, { passive: false });
+
+      var finish = function (event) {
+        var wasTrans = !!transformGesture;
+        delete activeTouchPts[event.pointerId];
+        if (Object.keys(activeTouchPts).length < 2) transformGesture = null;
+        if (!wasTrans) {
+          var held = activePointers[event.pointerId];
+          if (held) { flashKey(held.key, false); if (held.voice) A.releaseVoice(held.voice); delete activePointers[event.pointerId]; }
+          dragState = null;
+        }
+      };
+      canvas.addEventListener("pointerup", finish);
+      canvas.addEventListener("pointercancel", finish);
+      canvas.addEventListener("touchstart", function () { A.unlockAudio(); }, { passive: true });
+
+      // Reset view button
+      $("#reset-view-btn").addEventListener("pointerdown", function (e) {
+        e.preventDefault(); userScale = 1; transformGesture = null; activeTouchPts = {};
+        if (activeModelRoot) activeModelRoot.scale.set(1, 1, 1);
+        setPrompt("视角已重置");
+        updateSynthDisplay(A.state.currentPreset, A.state.currentWave, "VIEW RESET");
+      });
+    }
+
+    // ============================================================
+    // A-Frame Component: synth-model
+    // ============================================================
+    AFRAME.registerComponent("synth-model", {
+      init: function () {
+        var el = this.el;
+        var root = new THREE.Group();
+        root.name = "synth-model-root";
+        root.scale.set(0.045, 0.045, 0.045);
+        el.object3D.add(root);
+
+        // Build the synth geometry
+        buildSynthModel(root, el);
+
+        // Store for interaction
+        el._modelRoot = root;
+        el._instrument = "synth";
+
+        // Listen for parent marker visibility changes
+        this.markerEl = el.closest("a-marker");
+        if (this.markerEl) {
+          this.markerEl.addEventListener("markerFound", this._onFound.bind(this));
+          this.markerEl.addEventListener("markerLost", this._onLost.bind(this));
+        }
+      },
+      _onFound: function () {
+        console.log("[AR] Synth marker found");
+        if (activeInstrument === "drum" && activeWorldEl) {
+          activeWorldEl.setAttribute("visible", false);
+          activeWorldEl.object3D.visible = false;
+        }
+        activeInstrument = "synth";
+        activeWorldEl = this.el;
+        activeModelRoot = this.el._modelRoot;
+        this.el.setAttribute("visible", true);
+        this.el.object3D.visible = true;
+        A.restoreOutput();
+        document.body.classList.add("mode-play");
+        setPrompt("AR Mini Synth Workstation");
+        updateDebug({ markerFound: true, shownModel: "synth" });
+        if (!aframeCanvas) bindCanvas(document.getElementById("ar-scene").canvas);
+      },
+      _onLost: function () {
+        console.log("[AR] Synth marker lost");
+        if (activeInstrument === "synth") {
+          activeInstrument = null;
+          activeWorldEl = null;
+          activeModelRoot = null;
+          A.muteOutput();
+          document.body.classList.remove("mode-play");
+          setPrompt("请将乐器识别卡放入画面中");
+          updateDebug({ markerFound: false, shownModel: "none" });
+        }
+        this.el.setAttribute("visible", false);
+        this.el.object3D.visible = false;
+      }
+    });
+
+    // ============================================================
+    // A-Frame Component: drum-model
+    // ============================================================
+    AFRAME.registerComponent("drum-model", {
+      init: function () {
+        var el = this.el;
+        var root = new THREE.Group();
+        root.name = "drum-model-root";
+        root.scale.set(0.045, 0.045, 0.045);
+        el.object3D.add(root);
+
+        buildDrumModel(root);
+
+        el._modelRoot = root;
+        el._instrument = "drum";
+
+        this.markerEl = el.closest("a-marker");
+        if (this.markerEl) {
+          this.markerEl.addEventListener("markerFound", this._onFound.bind(this));
+          this.markerEl.addEventListener("markerLost", this._onLost.bind(this));
+        }
+      },
+      _onFound: function () {
+        console.log("[AR] Drum marker found");
+        if (activeInstrument === "synth" && activeWorldEl) {
+          activeWorldEl.setAttribute("visible", false);
+          activeWorldEl.object3D.visible = false;
+        }
+        activeInstrument = "drum";
+        activeWorldEl = this.el;
+        activeModelRoot = this.el._modelRoot;
+        this.el.setAttribute("visible", true);
+        this.el.object3D.visible = true;
+        A.restoreOutput();
+        document.body.classList.add("mode-play");
+        setPrompt("QR Drum Machine");
+        updateDebug({ markerFound: true, shownModel: "drum" });
+        if (!aframeCanvas) bindCanvas(document.getElementById("ar-scene").canvas);
+      },
+      _onLost: function () {
+        console.log("[AR] Drum marker lost");
+        if (activeInstrument === "drum") {
+          activeInstrument = null;
+          activeWorldEl = null;
+          activeModelRoot = null;
+          A.muteOutput();
+          document.body.classList.remove("mode-play");
+          setPrompt("请将乐器识别卡放入画面中");
+          updateDebug({ markerFound: false, shownModel: "none" });
+        }
+        this.el.setAttribute("visible", false);
+        this.el.object3D.visible = false;
+      }
+    });
+
+    // ============================================================
+    // Startup
+    // ============================================================
+    function initScene() {
+      var sceneEl = document.getElementById("ar-scene");
+      if (!sceneEl) return;
+
+      function onReady() {
+        console.log("[AR] Scene ready");
+        bindCanvas(sceneEl.canvas);
+
+        // Set guitar worklet URL
+        if (window.__audio && window.__audio.setWorkletUrl) {
+          var wurl = new URL("./assets/guitar-worklet.js?v=" + BUILD_ID, window.location.href).href;
+          window.__audio.setWorkletUrl(wurl);
+        }
+      }
+
+      if (sceneEl.hasLoaded) onReady();
+      else sceneEl.addEventListener("loaded", onReady);
+    }
+
+    function handleStart() {
+      console.log("[AR] handleStart called");
+      A.unlockAudio();
+
+      var overlay = document.getElementById("start-overlay");
+      if (overlay) overlay.classList.add("hidden");
+
+      var sceneEl = document.getElementById("ar-scene");
+      sceneEl.classList.add("active");
+      sceneEl.style.display = "block";
+
+      setPrompt("请将乐器识别卡放入画面中");
+
+      if (!aframeCanvas) initScene();
+    }
+
+    // Expose globally
+    window._handleStart = handleStart;
+
+    // Init after DOM ready
+    function init() {
+      console.log("[AR] Page init, BUILD_ID:", BUILD_ID);
+      console.log("[AR] AFRAME available:", typeof AFRAME !== "undefined");
+      console.log("[AR] __audio available:", typeof window.__audio !== "undefined");
+      setPrompt("请点击"启动 AR 体验"");
+      updateDebug({});
+    }
+
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", init);
+    } else {
+      init();
+    }
+  })();
+  </script>
 </body>
 </html>

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+  <title>AR Minimal Test</title>
+  <script src="assets/aframe.min.js?v=4"></script>
+  <script src="assets/aframe-ar.js?v=4"></script>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    #msg { position: fixed; z-index: 10; bottom: 20px; left: 50%; transform: translateX(-50%);
+           color: #0f0; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px;
+           font: 16px sans-serif; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div id="msg">等待摄像头...</div>
+
+  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
+    <a-marker preset="hiro">
+      <a-box position="0 0 0.5" material="color: red;" scale="0.5 0.5 0.5"></a-box>
+    </a-marker>
+    <a-entity camera></a-entity>
+  </a-scene>
+</body>
+</html>

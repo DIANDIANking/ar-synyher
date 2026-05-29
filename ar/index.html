@@ -2737,43 +2737,76 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         var camera = scene.camera;
         if (!camera) return null;
 
-        // 刷新场景内所有世界矩阵（AR.js追踪 + pinch缩放 + 模型层级）
         scene.object3D.updateMatrixWorld();
 
-        // NDC：用 canvas 实际尺寸在视口中的位置做精确映射
-        // AR.js 相机画面坐标与屏幕触摸坐标存在镜像关系，需要翻转 X/Y
         var canvas = scene.canvas;
         var rect = canvas ? canvas.getBoundingClientRect() : null;
         var cw = (rect && rect.width) || window.innerWidth;
         var ch = (rect && rect.height) || window.innerHeight;
         var cl = (rect && rect.left) || 0;
         var ct = (rect && rect.top) || 0;
-        var nx = ((pointer.x - cl) / cw);  // 0..1 从左到右
-        var ny = ((pointer.y - ct) / ch);  // 0..1 从上到下
-        var mx = 1 - nx * 2;               // 左→右 变 右→左（镜像X）
-        var my = ny * 2 - 1;               // 上→下 变 下→上（镜像Y）
+        var nx = ((pointer.x - cl) / cw);
+        var ny = ((pointer.y - ct) / ch);
 
-        // 手动 unproject（兼容 AR.js 的 THREE.Camera）
-        var ndc3 = new THREE.Vector3(mx, my, 0.5);
-        ndc3.unproject(camera);
-        var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
-        var dir = ndc3.clone().sub(origin).normalize();
-        this.raycaster.set(origin, dir);
-
-        // 递归收集 this.group 下全部交互 mesh
-        var all = [];
-        function walk(obj) {
-            if (obj.userData && obj.userData.interaction) all.push(obj);
-            var kids = obj.children;
-            if (kids) for (var i = 0; i < kids.length; i++) walk(kids[i]);
+        // 调试：在页面上显示触摸坐标和命中的交互物体
+        if (window._synthDebug) {
+            var debugEl = document.getElementById('touch-debug');
+            if (!debugEl) {
+                debugEl = document.createElement('div');
+                debugEl.id = 'touch-debug';
+                debugEl.style.cssText = 'position:fixed;top:10px;left:10px;background:rgba(0,0,0,0.8);color:#0f0;font-size:12px;padding:8px;z-index:9999;max-width:90vw;word-break:break-all;pointer-events:none;';
+                document.body.appendChild(debugEl);
+            }
         }
-        if (this.group) walk(this.group);
 
-        var hits = this.raycaster.intersectObjects(all, false);
-        for (var i = 0; i < hits.length; i++) {
-            var obj = hits[i].object;
-            var inter = obj.userData && obj.userData.interaction;
-            if (inter) return { object: obj, interaction: inter, point: hits[i].point };
+        // 尝试多种 NDC 映射方案，找出能让触摸命中的那个
+        var tryVariants = window._synthDebug ? [
+            { name: '标准', mx: nx*2-1,          my: -(ny*2-1) },
+            { name: 'X翻转', mx: 1-nx*2,          my: -(ny*2-1) },
+            { name: 'Y翻转', mx: nx*2-1,          my: ny*2-1 },
+            { name: 'XY翻转', mx: 1-nx*2,         my: ny*2-1 },
+        ] : [
+            // 生产模式只试XY翻转（根据你的反馈：左→右，下→上）
+            { name: 'XY翻转', mx: 1-nx*2, my: ny*2-1 },
+        ];
+
+        for (var ti = 0; ti < tryVariants.length; ti++) {
+            var v = tryVariants[ti];
+            var ndc3 = new THREE.Vector3(v.mx, v.my, 0.5);
+            ndc3.unproject(camera);
+            var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+            var dir = ndc3.clone().sub(origin).normalize();
+            this.raycaster.set(origin, dir);
+
+            var all = [];
+            function walk(obj) {
+                if (obj.userData && obj.userData.interaction) all.push(obj);
+                var kids = obj.children;
+                if (kids) for (var i = 0; i < kids.length; i++) walk(kids[i]);
+            }
+            if (this.group) walk(this.group);
+
+            var hits = this.raycaster.intersectObjects(all, false);
+            for (var i = 0; i < hits.length; i++) {
+                var obj = hits[i].object;
+                var inter = obj.userData && obj.userData.interaction;
+                if (inter) {
+                    if (window._synthDebug) {
+                        var pos = obj.position;
+                        debugEl.textContent = [
+                            'touch:(' + pointer.x.toFixed(1) + ',' + pointer.y.toFixed(1) + ')',
+                            'nx=' + nx.toFixed(3) + ' ny=' + ny.toFixed(3),
+                            'hit:' + inter.kind + ' ' + (inter.id || inter.midi || inter.label || ''),
+                            'variant:' + v.name,
+                            'objPos:(' + (pos.x||0).toFixed(2) + ',' + (pos.y||0).toFixed(2) + ',' + (pos.z||0).toFixed(2) + ')'
+                        ].join('\n');
+                    }
+                    return { object: obj, interaction: inter, point: hits[i].point };
+                }
+            }
+        }
+        if (window._synthDebug) {
+            debugEl.textContent = 'nx='+nx.toFixed(3)+' ny='+ny.toFixed(3)+' MISS';
         }
         return null;
     },

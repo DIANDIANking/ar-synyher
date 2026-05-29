@@ -1,8 +1,8 @@
-import * as THREE from "./three.js?v=20260529-pose-matrix-v1";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-pose-matrix-v1";
-import { createEmptyAnchor } from "./anchor.js?v=20260529-pose-matrix-v1";
-import { hasCameraSupport, needsHttps } from "./camera.js?v=20260529-pose-matrix-v1";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-pose-matrix-v1";
+import * as THREE from "./three.js?v=20260529-drum222-v1";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-drum222-v1";
+import { createEmptyAnchor } from "./anchor.js?v=20260529-drum222-v1";
+import { hasCameraSupport, needsHttps } from "./camera.js?v=20260529-drum222-v1";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-drum222-v1";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -31,7 +31,7 @@ const FADERS = [
 const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-const BUILD_ID = "20260529-pose-matrix-v1";
+const BUILD_ID = "20260529-drum222-v1";
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;

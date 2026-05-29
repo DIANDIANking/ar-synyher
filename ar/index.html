@@ -1304,7 +1304,7 @@ const FADERS = [
 const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-const BUILD_ID = "20260529-no-access-v1";
+const BUILD_ID = "20260530-hit-align-v1";
 const MIN_SYNTH_NOTE_HOLD_MS = 230;
 const MIN_BASS_NOTE_HOLD_MS = 280;
 const ORIGINAL_GUITAR_PARAMS = {
@@ -2748,11 +2748,13 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         var nx = ((pointer.x - cl) / cw);
         var ny = ((pointer.y - ct) / ch);
 
-        // AR.js 相机为镜像画面，触摸 X 轴需翻转，Y 轴保持标准
-        var mx = 1 - nx * 2;
-        var my = -(ny * 2 - 1);
+        var mx = nx * 2 - 1;
+        var my = 1 - ny * 2;
 
         var ndc3 = new THREE.Vector3(mx, my, 0.5);
+        camera.updateMatrixWorld(true);
+        if (this.group) this.group.updateMatrixWorld(true);
+        scene.object3D.updateMatrixWorld(true);
         ndc3.unproject(camera);
         var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
         var dir = ndc3.clone().sub(origin).normalize();
@@ -3189,11 +3191,13 @@ AFRAME.registerComponent('runtime-drum-machine', {
         var nx = ((pointer.x - cl) / cw);
         var ny = ((pointer.y - ct) / ch);
 
-        // AR.js 相机为镜像画面，触摸 X 轴需翻转，Y 轴保持标准
-        var mx = 1 - nx * 2;
-        var my = -(ny * 2 - 1);
+        var mx = nx * 2 - 1;
+        var my = 1 - ny * 2;
 
         var ndc3 = new THREE.Vector3(mx, my, 0.5);
+        camera.updateMatrixWorld(true);
+        if (this.group) this.group.updateMatrixWorld(true);
+        scene.object3D.updateMatrixWorld(true);
         ndc3.unproject(camera);
         var origin = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
         var dir = ndc3.clone().sub(origin).normalize();

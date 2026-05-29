@@ -1,8 +1,8 @@
-import * as THREE from "./three.js?v=20260530-ar-synyher-patt-v1";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260530-ar-synyher-patt-v1";
-import { createEmptyAnchor } from "./anchor.js?v=20260530-ar-synyher-patt-v1";
-import { hasCameraSupport, needsHttps } from "./camera.js?v=20260530-ar-synyher-patt-v1";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260530-ar-synyher-patt-v1";
+import * as THREE from "./three.js?v=20260530-hit-align-v1";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260530-hit-align-v1";
+import { createEmptyAnchor } from "./anchor.js?v=20260530-hit-align-v1";
+import { hasCameraSupport, needsHttps } from "./camera.js?v=20260530-hit-align-v1";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260530-hit-align-v1";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -31,7 +31,7 @@ const FADERS = [
 const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-const BUILD_ID = "20260530-ar-synyher-patt-v1";
+const BUILD_ID = "20260530-hit-align-v1";
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
@@ -182,6 +182,10 @@ let canvasBound = false;
 let drumControls = { ...DRUM_CONTROLS };
 let drumControlMeshes = new Map();
 let patternTargetsReady = null;
+const markerPosePosition = new THREE.Vector3();
+const markerPoseQuaternion = new THREE.Quaternion();
+const markerPoseSourceScale = new THREE.Vector3();
+const markerPoseCurrentScale = new THREE.Vector3();
 const arDebugState = {
   BUILD_ID,
   markerFound: false,
@@ -1480,6 +1484,34 @@ function isDescendantOf(object, parent) {
   return false;
 }
 
+function currentMarkerModelScale(cardId = state.marker.cardId) {
+  const card = getCardTarget(cardId);
+  const cardAnchor = card.anchor || {};
+  return FIXED_SYNTH_SCALE * userTransform.scale * (cardAnchor.modelScale || 1);
+}
+
+function currentMarkerPoseMatrix() {
+  if (!state.marker.locked) return null;
+  const source = state.marker.poseMatrix || composeMarkerPoseMatrix(state.marker);
+  if (!source) return null;
+  source.decompose(markerPosePosition, markerPoseQuaternion, markerPoseSourceScale);
+  const scale = currentMarkerModelScale(state.marker.cardId);
+  markerPoseCurrentScale.set(scale, scale, scale);
+  return new THREE.Matrix4().compose(markerPosePosition, markerPoseQuaternion, markerPoseCurrentScale);
+}
+
+function syncActiveModelMatrix() {
+  if (!activeModelGroup || !state.marker.locked) return false;
+  const poseMatrix = currentMarkerPoseMatrix();
+  if (!poseMatrix) return false;
+  anchor.poseMatrix = poseMatrix;
+  activeModelGroup.matrix.copy(poseMatrix);
+  activeModelGroup.matrixAutoUpdate = false;
+  activeModelGroup.matrixWorldNeedsUpdate = true;
+  activeModelGroup.updateMatrixWorld(true);
+  return true;
+}
+
 function createButton(parent, label, x, y, color, interaction, size = { w: 0.58, h: 0.22 }) {
   const mat = makeMaterial({ color: 0x26313e, emissive: 0x000000, roughness: 0.42, metalness: 0.25 });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.w, size.h, 0.08), mat);
@@ -1885,17 +1917,17 @@ function bindCanvasEvents(canvas) {
   if (!canvas || canvasBound) return;
   canvasBound = true;
   const getHit = (event) => {
-    const cw = canvas.clientWidth || window.innerWidth;
-    const ch = canvas.clientHeight || window.innerHeight;
-    const cl = canvas.getBoundingClientRect().left || 0;
-    const ct = canvas.getBoundingClientRect().top || 0;
-    const nx = (event.clientX - cl) / cw;
-    const ny = (event.clientY - ct) / ch;
-    // 相机镜像画面，X轴翻转
-    pointer.x = 1 - nx * 2;
-    pointer.y = -(ny * 2 - 1);
-    camera.updateMatrixWorld();
-    scene.updateMatrixWorld();
+    resizeCanvas();
+    syncActiveModelMatrix();
+    const rect = canvas.getBoundingClientRect();
+    const cw = rect.width || canvas.clientWidth || window.innerWidth;
+    const ch = rect.height || canvas.clientHeight || window.innerHeight;
+    const nx = clamp((event.clientX - (rect.left || 0)) / cw, 0, 1);
+    const ny = clamp((event.clientY - (rect.top || 0)) / ch, 0, 1);
+    pointer.x = nx * 2 - 1;
+    pointer.y = 1 - ny * 2;
+    camera.updateMatrixWorld(true);
+    scene.updateMatrixWorld(true);
     raycaster.setFromCamera(pointer, camera);
     // 从 activeModelGroup 递归收集所有交互物体
     const all = [];
@@ -2617,7 +2649,7 @@ function updateAnchor(portrait) {
     anchor.confidence = 0;
     return;
   }
-  anchor.poseMatrix = state.marker.poseMatrix || composeMarkerPoseMatrix(state.marker);
+  anchor.poseMatrix = currentMarkerPoseMatrix() || state.marker.poseMatrix || composeMarkerPoseMatrix(state.marker);
   anchor.confidence = 1;
 }
 
@@ -2646,12 +2678,7 @@ function render(time = 0) {
       requestAnimationFrame(render);
       return;
     }
-    if (anchor.poseMatrix) {
-      activeModelGroup.matrix.copy(anchor.poseMatrix);
-      activeModelGroup.matrixAutoUpdate = false;
-      activeModelGroup.matrixWorldNeedsUpdate = true;
-      activeModelGroup.updateMatrixWorld(true);
-    }
+    if (anchor.poseMatrix) syncActiveModelMatrix();
   }
 
   renderer.render(scene, camera);

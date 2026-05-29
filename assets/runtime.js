@@ -1885,13 +1885,23 @@ function bindCanvasEvents(canvas) {
   if (!canvas || canvasBound) return;
   canvasBound = true;
   const getHit = (event) => {
-    const rect = canvas.getBoundingClientRect();
-    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.y = -(((event.clientY - rect.top) / rect.height) * 2 - 1);
+    const cw = canvas.clientWidth || window.innerWidth;
+    const ch = canvas.clientHeight || window.innerHeight;
+    const cl = canvas.getBoundingClientRect().left || 0;
+    const ct = canvas.getBoundingClientRect().top || 0;
+    pointer.x = ((event.clientX - cl) / cw) * 2 - 1;
+    pointer.y = -(((event.clientY - ct) / ch) * 2 - 1);
     camera.updateMatrixWorld();
     scene.updateMatrixWorld();
     raycaster.setFromCamera(pointer, camera);
-    const hits = raycaster.intersectObjects(interactives, false);
+    // 从 activeModelGroup 递归收集所有交互物体
+    const all = [];
+    const collect = (obj) => {
+      if (obj.userData && obj.userData.interaction) all.push(obj);
+      if (obj.children) obj.children.forEach(collect);
+    };
+    if (activeModelGroup) collect(activeModelGroup);
+    const hits = raycaster.intersectObjects(all.length ? all : interactives, false);
     return hits.find((hit) => hit.object.visible !== false && isDescendantOf(hit.object, activeModelGroup));
   };
 

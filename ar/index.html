@@ -2736,21 +2736,41 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         const scene = this.el.sceneEl;
         const camera = scene.camera;
         if (!camera) return null;
-        const canvas = scene.canvas;
-        const rect = canvas.getBoundingClientRect();
-        const ndc = new THREE.Vector3(
-            ((pointer.x - rect.left) / rect.width) * 2 - 1,
-            -((pointer.y - rect.top) / rect.height) * 2 + 1,
-            0.5
-        );
-        // 关键修复：更新 camera 和 scene 的世界矩阵，确保 AR.js 追踪后的最新姿态生效
-        camera.updateMatrixWorld();
+
+        // 全面更新所有世界矩阵
         scene.object3D.updateMatrixWorld();
-        ndc.unproject(camera);
-        this.raycaster.ray.origin.setFromMatrixPosition(camera.matrixWorld);
-        this.raycaster.ray.direction.copy(ndc).sub(this.raycaster.ray.origin).normalize();
-        this.el.object3D.updateMatrixWorld();
-        const hits = this.raycaster.intersectObjects(this.interactives, true);
+        camera.updateMatrixWorld();
+
+        // 使用系统安全的 NDC 映射：优先用 canvas 尺寸，兜底用 window 尺寸
+        const canvas = scene.canvas;
+        const cw = (canvas && canvas.clientWidth) || window.innerWidth;
+        const ch = (canvas && canvas.clientHeight) || window.innerHeight;
+        const cl = (canvas && canvas.getBoundingClientRect().left) || 0;
+        const ct = (canvas && canvas.getBoundingClientRect().top) || 0;
+        const mouse = new THREE.Vector2(
+            ((pointer.x - cl) / cw) * 2 - 1,
+            -((pointer.y - ct) / ch) * 2 + 1
+        );
+
+        // AR.js 使用 THREE.Camera，setFromCamera 需要 isPerspectiveCamera=true
+        // 临时标记以使用 Three.js 内置的射线投射
+        const wasPC = camera.isPerspectiveCamera;
+        if (!wasPC) camera.isPerspectiveCamera = true;
+        try {
+            this.raycaster.setFromCamera(mouse, camera);
+        } finally {
+            if (!wasPC) camera.isPerspectiveCamera = false;
+        }
+
+        // 递归遍历 group 内所有子孙查找带 userData.interaction 的交互物体
+        const collectInteractives = (obj, out) => {
+            if (obj.userData && obj.userData.interaction) out.push(obj);
+            if (obj.children) obj.children.forEach(c => collectInteractives(c, out));
+        };
+        const all = [];
+        if (this.group) collectInteractives(this.group, all);
+
+        const hits = this.raycaster.intersectObjects(all, false);
         for (let i = 0; i < hits.length; i++) {
             const obj = hits[i].object;
             const interaction = obj.userData && obj.userData.interaction;
@@ -3167,21 +3187,40 @@ AFRAME.registerComponent('runtime-drum-machine', {
         const scene = this.el.sceneEl;
         const camera = scene.camera;
         if (!camera) return null;
-        const canvas = scene.canvas;
-        const rect = canvas.getBoundingClientRect();
-        const ndc = new THREE.Vector3(
-            ((pointer.x - rect.left) / rect.width) * 2 - 1,
-            -((pointer.y - rect.top) / rect.height) * 2 + 1,
-            0.5
-        );
-        // 关键修复：更新 camera 和 scene 的世界矩阵，确保 AR.js 追踪后的最新姿态生效
-        camera.updateMatrixWorld();
+
+        // 全面更新所有世界矩阵
         scene.object3D.updateMatrixWorld();
-        ndc.unproject(camera);
-        this.raycaster.ray.origin.setFromMatrixPosition(camera.matrixWorld);
-        this.raycaster.ray.direction.copy(ndc).sub(this.raycaster.ray.origin).normalize();
-        this.el.object3D.updateMatrixWorld();
-        const hits = this.raycaster.intersectObjects(this.interactives, true);
+        camera.updateMatrixWorld();
+
+        // 使用系统安全的 NDC 映射：优先用 canvas 尺寸，兜底用 window 尺寸
+        const canvas = scene.canvas;
+        const cw = (canvas && canvas.clientWidth) || window.innerWidth;
+        const ch = (canvas && canvas.clientHeight) || window.innerHeight;
+        const cl = (canvas && canvas.getBoundingClientRect().left) || 0;
+        const ct = (canvas && canvas.getBoundingClientRect().top) || 0;
+        const mouse = new THREE.Vector2(
+            ((pointer.x - cl) / cw) * 2 - 1,
+            -((pointer.y - ct) / ch) * 2 + 1
+        );
+
+        // AR.js 使用 THREE.Camera，setFromCamera 需要 isPerspectiveCamera=true
+        const wasPC = camera.isPerspectiveCamera;
+        if (!wasPC) camera.isPerspectiveCamera = true;
+        try {
+            this.raycaster.setFromCamera(mouse, camera);
+        } finally {
+            if (!wasPC) camera.isPerspectiveCamera = false;
+        }
+
+        // 递归遍历 group 内所有子孙查找交互物体
+        const collectInteractives = (obj, out) => {
+            if (obj.userData && obj.userData.interaction) out.push(obj);
+            if (obj.children) obj.children.forEach(c => collectInteractives(c, out));
+        };
+        const all = [];
+        if (this.group) collectInteractives(this.group, all);
+
+        const hits = this.raycaster.intersectObjects(all, false);
         for (let i = 0; i < hits.length; i++) {
             const obj = hits[i].object;
             const interaction = obj.userData && obj.userData.interaction;

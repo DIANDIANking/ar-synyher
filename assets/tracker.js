@@ -127,6 +127,7 @@ function isRecognizedSynthCard(pose, textConfidence, dataConfidence, cardTarget)
   const patternMin = cardTarget?.patternSignature?.minConfidence ?? cardTarget?.patternMatch?.minConfidence;
   if (patternMin != null && cardTarget?.patternSignature) {
     if ((pose.patternConfidence ?? 0) < patternMin) return false;
+    return markerConfidence >= Math.min(cornerMin, 0.62);
   }
   const glyphMin = cardTarget?.glyphSignature?.minConfidence;
   if (glyphMin != null && (pose.glyphConfidence ?? 0) < glyphMin) return false;

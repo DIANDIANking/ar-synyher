@@ -3,24 +3,74 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-  <title>AR Minimal Test</title>
-  <script src="assets/aframe.min.js?v=4"></script>
-  <script src="assets/aframe-ar.js?v=4"></script>
+  <title>AR Test v2</title>
+  <script src="assets/aframe.min.js?v=5"></script>
+  <script src="assets/aframe-ar.js?v=5"></script>
   <style>
-    body { margin: 0; overflow: hidden; }
+    body { margin: 0; overflow: hidden; background: #000; }
     #msg { position: fixed; z-index: 10; bottom: 20px; left: 50%; transform: translateX(-50%);
            color: #0f0; background: rgba(0,0,0,0.7); padding: 10px 20px; border-radius: 8px;
            font: 16px sans-serif; pointer-events: none; }
   </style>
 </head>
 <body>
-  <div id="msg">等待摄像头...</div>
+  <div id="msg">初始化中...</div>
 
-  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true;">
+  <a-scene embedded arjs="sourceType: webcam; debugUIEnabled: true; patternRatio: 0.5;" id="scene">
     <a-marker preset="hiro">
-      <a-box position="0 0 0.5" material="color: red;" scale="0.5 0.5 0.5"></a-box>
+      <a-box position="0 0.2 0" material="color: red;" scale="0.3 0.3 0.3"></a-box>
     </a-marker>
     <a-entity camera></a-entity>
   </a-scene>
+
+  <script>
+    var msg = document.getElementById("msg");
+
+    // iOS / mobile video fix
+    function fixVideo() {
+      var videos = document.querySelectorAll("video");
+      msg.textContent = "Video elements: " + videos.length;
+      videos.forEach(function (v) {
+        v.setAttribute("playsinline", "");
+        v.setAttribute("webkit-playsinline", "");
+        v.setAttribute("muted", "");
+        v.setAttribute("autoplay", "");
+        try { v.play().catch(function (e) { msg.textContent = "video.play rejected: " + e.name; }); } catch (e) {}
+      });
+    }
+
+    // Check markers
+    document.addEventListener("DOMContentLoaded", function () {
+      var scene = document.getElementById("scene");
+      msg.textContent = "Scene ready";
+
+      // Monitor marker events from body level
+      document.body.addEventListener("markerFound", function (e) {
+        msg.textContent = "MARKER FOUND! " + (e.target && e.target.id || "unknown");
+        msg.style.color = "#0f0";
+      });
+      document.body.addEventListener("markerLost", function (e) {
+        msg.textContent = "marker lost: " + (e.target && e.target.id || "unknown");
+        msg.style.color = "#ff0";
+      });
+
+      // Apply video fix after a short delay (AR.js needs time to create video)
+      setTimeout(fixVideo, 800);
+      setTimeout(fixVideo, 2000);
+      setTimeout(fixVideo, 4000);
+
+      // Log marker element
+      setTimeout(function () {
+        var markers = document.querySelectorAll("a-marker");
+        msg.textContent = "Markers: " + markers.length + " | Videos: " + document.querySelectorAll("video").length;
+      }, 1500);
+    });
+
+    // Global error catch
+    window.addEventListener("error", function (e) {
+      msg.textContent = "JS Error: " + e.message;
+      msg.style.color = "#f00";
+    });
+  </script>
 </body>
 </html>

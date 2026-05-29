@@ -1,8 +1,8 @@
-import * as THREE from "./three.js?v=20260529-two-stage-blue-v1";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-two-stage-blue-v1";
-import { createEmptyAnchor } from "./anchor.js?v=20260529-two-stage-blue-v1";
-import { hasCameraSupport, needsHttps } from "./camera.js?v=20260529-two-stage-blue-v1";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-two-stage-blue-v1";
+import * as THREE from "./three.js?v=20260529-pattern-restore-v1";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-pattern-restore-v1";
+import { createEmptyAnchor } from "./anchor.js?v=20260529-pattern-restore-v1";
+import { hasCameraSupport, needsHttps } from "./camera.js?v=20260529-pattern-restore-v1";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-pattern-restore-v1";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -31,14 +31,12 @@ const FADERS = [
 const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-const BUILD_ID = "20260529-two-stage-blue-v1";
+const BUILD_ID = "20260529-pattern-restore-v1";
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
-const MARKER_LOST_TIMEOUT_MS = 500;
+const MARKER_LOST_TIMEOUT_MS = 300;
 const PATTERN_SWITCH_MARGIN = 0.035;
-const IDENTITY_STABLE_FRAMES = 3;
-const BLUE_IDENTITY_THRESHOLD = 0.03;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
 const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
@@ -95,52 +93,6 @@ const DRUM_CONTROLS = {
 
 const synthMarkerBinding = markerResourceMap.hechengqi;
 const drumMarkerBinding = markerResourceMap.drum;
-const GENERIC_MARKER_TARGET = {
-  id: "generic-marker",
-  instrumentId: "unknown",
-  title: "乐器卡",
-  markerText: ["乐器卡"],
-  recognizedText: "乐器卡",
-  resolvedInstrument: "unknown",
-  encodedPayload: "instrument=unknown;card=generic-marker",
-  cardAspect: 1,
-  qrCenterYOffset: 0,
-  cornerMarkerRatio: { x: 0.84, y: 0.855 },
-  textSignatureRegions: [
-    { x: 0.30, y: 0.30, w: 0.40, h: 0.40, minDarkRatio: 0.025 },
-    { x: 0.34, y: 0.34, w: 0.32, h: 0.32, minDarkRatio: 0.035 }
-  ],
-  textPanel: {
-    x: 0.30,
-    y: 0.30,
-    w: 0.40,
-    h: 0.40,
-    minWhiteRatio: 0.32,
-    minDarkSurroundRatio: 0.22,
-    minTextDarkRatio: 0.025
-  },
-  hiroMarker: {
-    enabled: true,
-    anchorRegion: "textPanel",
-    requireTextPanelOnly: false,
-    decodedInstrument: "unknown"
-  },
-  recognition: {
-    minTextConfidence: 0.025,
-    minDataConfidence: 0.0,
-    minCombinedConfidence: 0.16,
-    minCornerConfidence: 0.16,
-    strictDataSignature: false
-  },
-  anchor: {
-    anchorMode: "card-center",
-    liftPortrait: 1.10,
-    liftLandscape: 0.74,
-    modelScale: 1.0,
-    yOffset: 0.08,
-    zOffset: 0.10
-  }
-};
 window.markerResourceMap = markerResourceMap;
 window.activeInstrument = null;
 
@@ -228,16 +180,12 @@ let canvasBound = false;
 let drumControls = { ...DRUM_CONTROLS };
 let drumControlMeshes = new Map();
 let patternTargetsReady = null;
-let identityCandidate = null;
-let identityCandidateFrames = 0;
-let stableIdentity = null;
 const arDebugState = {
   BUILD_ID,
   markerFound: false,
   poseFound: false,
   pattWinner: "none",
-  blueRatio: "0.0000",
-  classifiedIdentity: "none",
+  classifiedIdentity: "pattern",
   finalIdentity: "none",
   shownModel: "none",
   "drumModel.visible": false,
@@ -691,7 +639,7 @@ function deactivateInstrumentMarker() {
   setActiveInstrumentModel(null);
   document.body.classList.remove("synthesizer-active");
   updateArDebug({
-    finalIdentity: stableIdentity || "none",
+    finalIdentity: "none",
     shownModel: "none",
     "drumModel.visible": false,
     "synthModel.visible": false
@@ -2118,7 +2066,7 @@ function scanTextCardMarker() {
       poseUpdated: false,
       pattWinner: "none",
       classifiedIdentity: "none",
-      finalIdentity: stableIdentity || "none"
+      finalIdentity: "none"
     });
     hideMarker(PROMPT_FIND_CARD);
     return false;
@@ -2130,7 +2078,7 @@ function scanTextCardMarker() {
       poseUpdated: false,
       pattWinner: "none",
       classifiedIdentity: "none",
-      finalIdentity: stableIdentity || "none"
+      finalIdentity: "none"
     });
     hideMarker(PROMPT_FIND_CARD);
     return false;
@@ -2147,37 +2095,28 @@ function scanTextCardMarker() {
   const frame = { imageData, width, height };
   const pose = detectAnyCardPoseFromFrame(frame);
   const markerFound = Boolean(pose);
-  const classification = markerFound
-    ? classifyCardFromVideoFrame(frame, pose)
-    : { blueRatio: 0, identity: null };
-  const stable = markerFound ? resolveStableIdentity(classification.identity) : null;
-  const finalIdentity = stable;
-  const cardId = finalIdentity === "drum" ? "drum" : finalIdentity === "synth" ? "hechengqi" : null;
+  const cardId = pose?.cardId || null;
   const cardTarget = cardId ? getCardTarget(cardId) : null;
+  const finalIdentity = cardId === "drum" ? "drum" : cardId === "hechengqi" ? "synth" : "none";
   updateArDebug({
     markerFound,
     poseFound: markerFound,
     pattWinner: pose?.pattWinner || pose?.cardId || "none",
-    blueRatio: classification.blueRatio.toFixed(4),
-    classifiedIdentity: classification.identity || "none",
+    classifiedIdentity: markerFound ? "pattern" : "none",
     finalIdentity: finalIdentity || "none",
     poseUpdated: false
   });
   if (!markerFound) {
-    resetIdentityCandidate(false);
     return handleMarkerMiss(PROMPT_FIND_CARD);
   }
-  if (!cardTarget || !finalIdentity) {
-    setPrompt(`正在稳定识别乐器 ${identityCandidateFrames}/${IDENTITY_STABLE_FRAMES}`);
-    return handleMarkerMiss("正在稳定识别乐器卡");
-  }
+  if (!cardTarget) return handleMarkerMiss(PROMPT_FIND_CARD);
   const tracked = Boolean(pose && updateMarkerFromPose(pose, scale, {
-    payload: cardTarget.encodedPayload || (finalIdentity === "drum" ? "instrument=drum-machine" : "instrument=synthesizer"),
+    payload: pose.decodedPayload || cardTarget.encodedPayload || "instrument=synth",
     cardId,
-    instrumentType: cardTarget.markerResource?.instrumentType || cardTarget.resolvedInstrument || cardTarget.instrumentId || "synthesizer",
-    recognizedText: cardTarget.recognizedText || cardTarget.title || "",
+    instrumentType: pose.resolvedInstrument || cardTarget.resolvedInstrument || cardTarget.markerResource?.instrumentType || cardTarget.instrumentId || "synthesizer",
+    recognizedText: pose.recognizedText || cardTarget.recognizedText || cardTarget.title || "",
     markerResource: cardTarget.markerResource || synthMarkerBinding,
-    source: `${pose.source || "marker"}+blue-classifier`,
+    source: pose.source || "text-card",
     immediate: true
   }));
   updateArDebug({ poseUpdated: tracked });
@@ -2211,19 +2150,6 @@ function detectAnyCardPoseFromFrame(frame) {
       }
     });
   }
-  const genericPose = detectCardPoseFromFrame(GENERIC_MARKER_TARGET, frame);
-  if (genericPose) {
-    hits.push({
-      score: genericPose.wholeCardConfidence || genericPose.textConfidence || 0.2,
-      pose: {
-        ...genericPose,
-        cardId: "generic-marker",
-        resolvedInstrument: "unknown",
-        recognizedText: "乐器卡",
-        decodedPayload: "instrument=unknown;card=generic-marker"
-      }
-    });
-  }
   if (!hits.length) return null;
   hits.sort((a, b) => b.score - a.score);
   const [best, runnerUp] = hits;
@@ -2233,95 +2159,15 @@ function detectAnyCardPoseFromFrame(frame) {
     score: hit.score
   }));
   if (runnerUp && best.score - runnerUp.score < PATTERN_SWITCH_MARGIN) {
-    console.warn("[AR pattern] ambiguous pose kept for anchor only", {
+    console.warn("[AR pattern] ambiguous match ignored", {
       best: best.pose.cardId,
       bestScore: best.score,
       runnerUp: runnerUp.pose.cardId,
       runnerUpScore: runnerUp.score
     });
+    return null;
   }
   return best.pose;
-}
-
-function classifyCardFromVideoFrame(frame, pose = null) {
-  const blueRatio = pose?.center && pose?.xUnit && pose?.yUnit
-    ? samplePoseBlueRatio(frame, pose, { x: 0.24, y: 0.24, w: 0.52, h: 0.52, cols: 54, rows: 54 })
-    : sampleFrameCenterBlueRatio(frame);
-  return {
-    blueRatio,
-    identity: blueRatio > BLUE_IDENTITY_THRESHOLD ? "drum" : "synth"
-  };
-}
-
-function samplePoseBlueRatio(frame, pose, region) {
-  if (!frame?.imageData?.data || !pose?.center) return 0;
-  const cols = region.cols || 48;
-  const rows = region.rows || 48;
-  const data = frame.imageData.data;
-  let blue = 0;
-  let total = 0;
-  for (let row = 0; row < rows; row += 1) {
-    for (let col = 0; col < cols; col += 1) {
-      const nx = region.x + ((col + 0.5) / cols) * region.w;
-      const ny = region.y + ((row + 0.5) / rows) * region.h;
-      const p = {
-        x: pose.center.x + pose.xUnit.x * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.x * (ny - 0.5) * pose.halfH * 2,
-        y: pose.center.y + pose.xUnit.y * (nx - 0.5) * pose.halfW * 2 + pose.yUnit.y * (ny - 0.5) * pose.halfH * 2
-      };
-      const x = Math.round(p.x);
-      const y = Math.round(p.y);
-      if (x < 0 || y < 0 || x >= frame.width || y >= frame.height) continue;
-      const i = (y * frame.width + x) * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      if (b > 100 && b > r * 1.3 && b > g * 1.1) blue += 1;
-      total += 1;
-    }
-  }
-  return total ? blue / total : 0;
-}
-
-function sampleFrameCenterBlueRatio(frame) {
-  if (!frame?.imageData?.data) return 0;
-  const data = frame.imageData.data;
-  const minX = Math.floor(frame.width * 0.30);
-  const maxX = Math.ceil(frame.width * 0.70);
-  const minY = Math.floor(frame.height * 0.30);
-  const maxY = Math.ceil(frame.height * 0.70);
-  let blue = 0;
-  let total = 0;
-  for (let y = minY; y < maxY; y += 2) {
-    for (let x = minX; x < maxX; x += 2) {
-      const i = (y * frame.width + x) * 4;
-      const r = data[i];
-      const g = data[i + 1];
-      const b = data[i + 2];
-      if (b > 100 && b > r * 1.3 && b > g * 1.1) blue += 1;
-      total += 1;
-    }
-  }
-  return total ? blue / total : 0;
-}
-
-function resolveStableIdentity(identity) {
-  if (!identity) return stableIdentity;
-  if (identity !== identityCandidate) {
-    identityCandidate = identity;
-    identityCandidateFrames = 1;
-  } else {
-    identityCandidateFrames += 1;
-  }
-  if (identityCandidateFrames >= IDENTITY_STABLE_FRAMES) {
-    stableIdentity = identity;
-  }
-  return stableIdentity;
-}
-
-function resetIdentityCandidate(clearStable = true) {
-  identityCandidate = null;
-  identityCandidateFrames = 0;
-  if (clearStable) stableIdentity = null;
 }
 
 function mapVideoPointToStage(point, scanScale) {
@@ -2549,7 +2395,6 @@ function hideMarker(promptText) {
   foundFrameCount = 0;
   lastCandidateAt = 0;
   lastCardPoseScan = null;
-  resetIdentityCandidate(true);
   cancelActiveControlPointers();
   muteOutputForMarkerLoss();
   deactivateInstrumentMarker();

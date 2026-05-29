@@ -125,15 +125,15 @@
     embedded
     vr-mode-ui="enabled: false"
     renderer="logarithmicDepthBuffer: true; alpha: true;"
-    arjs="sourceType: webcam; debugUIEnabled: false; patternRatio: 0.5;">
+    arjs="sourceType: webcam; debugUIEnabled: true;">
 
-    <!-- 合成器标记 -->
-    <a-marker id="marker-synth" type="pattern" url="assets/markers/synth.patt" size="0.15" synth-model>
+    <!-- 测试：Hiro 内置标记（验证 AR 管线） -->
+    <a-marker id="marker-synth" preset="hiro" size="0.15" synth-model>
       <a-entity class="instrument-world" visible="false"></a-entity>
     </a-marker>
 
-    <!-- 鼓机标记 -->
-    <a-marker id="marker-drum" type="pattern" url="assets/markers/drum.patt" size="0.15" drum-model>
+    <!-- 鼓机标记（暂时也用 hiro 测试） -->
+    <a-marker id="marker-drum" preset="kanji" size="0.15" drum-model>
       <a-entity class="instrument-world" visible="false"></a-entity>
     </a-marker>
 

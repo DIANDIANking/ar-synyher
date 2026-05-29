@@ -69,7 +69,7 @@ export const CARD_TARGETS = {
       decodedInstrument: "synthesizer"
     },
     patternMatch: {
-      minConfidence: 0.80
+      minConfidence: 0.75
     },
     glyphSignature: {
       minConfidence: 0.68,
@@ -145,7 +145,7 @@ export const CARD_TARGETS = {
       decodedInstrument: "drum-machine"
     },
     patternMatch: {
-      minConfidence: 0.82
+      minConfidence: 0.75
     },
     glyphSignature: {
       minConfidence: 0.68,

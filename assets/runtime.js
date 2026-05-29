@@ -1,8 +1,8 @@
 import * as THREE from "./three.js";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v3";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260529-patt-binding-v4";
 import { createEmptyAnchor } from "./anchor.js";
 import { hasCameraSupport, needsHttps } from "./camera.js";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v3";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260529-patt-binding-v4";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -34,6 +34,7 @@ const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
+const MARKER_LOST_TIMEOUT_MS = 220;
 const REQUIRED_IMAGE_TRACK_CORNERS = 4;
 const MIN_IMAGE_TRACK_CORNER_RATIO = 0.18;
 const MIN_IMAGE_TRACK_CONFIDENCE = 0.62;
@@ -2037,10 +2038,18 @@ function scanTextCardMarker() {
     source: pose.source || "text-card",
     immediate: true
   }));
-  if (!tracked) {
-    hideMarker(PROMPT_FIND_CARD);
-  }
+  if (!tracked) return handleMarkerMiss(PROMPT_FIND_CARD);
   return tracked;
+}
+
+function handleMarkerMiss(promptText) {
+  const now = performance.now();
+  if (state.marker.locked && now - state.marker.lastSeenAt <= MARKER_LOST_TIMEOUT_MS) {
+    if (promptText) setPrompt(promptText);
+    return false;
+  }
+  hideMarker(promptText);
+  return false;
 }
 
 function detectAnyCardPoseFromFrame(frame) {
@@ -2259,6 +2268,10 @@ function updateMarkerLost() {
 
 function enforceMarkerTimeout(now = performance.now()) {
   if (!cameraStream && state.marker.locked) {
+    hideMarker(PROMPT_FIND_CARD);
+    return false;
+  }
+  if (state.marker.locked && now - state.marker.lastSeenAt > MARKER_LOST_TIMEOUT_MS) {
     hideMarker(PROMPT_FIND_CARD);
     return false;
   }

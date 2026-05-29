@@ -1290,21 +1290,21 @@ function buildSynthModel() {
   const sideMat = makeMaterial({ color: 0x07090d, roughness: 0.72, metalness: 0.22 });
   const panelMat = makeMaterial({ color: 0x1c2632, roughness: 0.48, metalness: 0.36 });
 
-  const base = new THREE.Mesh(new THREE.BoxGeometry(5.55, 2.32, 0.30), bodyMat);
-  base.position.set(0, -0.12, -0.08);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(5.55, 2.50, 0.22), bodyMat);
+  base.position.set(0, -0.03, -0.05);
   synthGroup.add(base);
 
-  const backLip = new THREE.Mesh(new THREE.BoxGeometry(5.55, 0.16, 0.36), sideMat);
-  backLip.position.set(0, 1.02, 0.06);
+  const backLip = new THREE.Mesh(new THREE.BoxGeometry(5.55, 0.16, 0.24), sideMat);
+  backLip.position.set(0, 1.13, 0.04);
   synthGroup.add(backLip);
 
   const panel = new THREE.Group();
   panel.name = "synth_slanted_control_panel";
-  panel.position.set(0, 0.43, 0.10);
-  panel.rotation.x = -0.18;
+  panel.position.set(0, 0.45, 0.08);
+  panel.rotation.x = -0.12;
   synthGroup.add(panel);
 
-  const panelPlate = new THREE.Mesh(new THREE.BoxGeometry(5.30, 1.16, 0.18), panelMat);
+  const panelPlate = new THREE.Mesh(new THREE.BoxGeometry(5.30, 1.16, 0.14), panelMat);
   panelPlate.position.set(0, 0, 0);
   panel.add(panelPlate);
 
@@ -1328,21 +1328,21 @@ function buildDrumMachineModel() {
   const sideMat = makeMaterial({ color: 0x05080d, roughness: 0.62, metalness: 0.30 });
   const panelMat = makeMaterial({ color: 0x17202a, roughness: 0.46, metalness: 0.42 });
 
-  const base = new THREE.Mesh(new THREE.BoxGeometry(5.65, 2.20, 0.32), baseMat);
-  base.position.set(0, -0.08, -0.10);
+  const base = new THREE.Mesh(new THREE.BoxGeometry(5.65, 2.30, 0.18), baseMat);
+  base.position.set(0, -0.03, -0.05);
   drumGroup.add(base);
 
-  const frontLip = new THREE.Mesh(new THREE.BoxGeometry(5.70, 0.18, 0.28), sideMat);
-  frontLip.position.set(0, -1.10, 0.04);
+  const frontLip = new THREE.Mesh(new THREE.BoxGeometry(5.70, 0.18, 0.18), sideMat);
+  frontLip.position.set(0, -1.13, 0.02);
   drumGroup.add(frontLip);
 
   const panel = new THREE.Group();
   panel.name = "drum_machine_panel";
-  panel.position.set(0, 0.08, 0.14);
-  panel.rotation.x = -0.15;
+  panel.position.set(0, 0.10, 0.10);
+  panel.rotation.x = -0.08;
   drumGroup.add(panel);
 
-  const panelPlate = new THREE.Mesh(new THREE.BoxGeometry(5.34, 1.78, 0.18), panelMat);
+  const panelPlate = new THREE.Mesh(new THREE.BoxGeometry(5.34, 1.78, 0.12), panelMat);
   panelPlate.position.set(0, 0, 0);
   panel.add(panelPlate);
 
@@ -1364,11 +1364,11 @@ function buildDrumMachineModel() {
   createDrumButton(panel, "REC", 2.15, -0.62, 0xff5a66, () => updateDrumDisplay("QR DRUM", "REC", "READY"));
 
   const screen = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.44, 0.08), makeMaterial({ color: 0x051311, emissive: 0x0b4639, roughness: 0.22 }));
-  screen.position.set(2.05, 0.48, 0.17);
+  screen.position.set(2.05, 0.48, 0.13);
   panel.add(screen);
   drumScreenMaterial = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false });
   const display = new THREE.Mesh(new THREE.PlaneGeometry(1.02, 0.32), drumScreenMaterial);
-  display.position.set(2.05, 0.48, 0.23);
+  display.position.set(2.05, 0.48, 0.18);
   panel.add(display);
 
   const knobs = [
@@ -1384,31 +1384,31 @@ function buildDrumMachineModel() {
 
 function createDrumPad(parent, id, label, x, y, color) {
   const pad = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.40, 0.10), makeMaterial({ color: 0x202b36, emissive: 0x000000, roughness: 0.40, metalness: 0.18 }));
-  pad.position.set(x, y, 0.16);
+  pad.position.set(x, y, 0.12);
   pad.userData.baseColor = 0x202b36;
   pad.userData.activeColor = color;
   pad.userData.baseZ = pad.position.z;
   parent.add(pad);
   addInteractive(pad, { kind: "drumPad", id });
-  addLabel(parent, label, x, y, 0.23, 0.52, 0.12, { fontSize: 22, color: "#f6fff8" });
+  addLabel(parent, label, x, y, 0.18, 0.52, 0.12, { fontSize: 22, color: "#f6fff8" });
   return pad;
 }
 
 function createDrumButton(parent, label, x, y, color, action) {
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.09), makeMaterial({ color: 0x273241, emissive: color, roughness: 0.36, metalness: 0.25 }));
-  mesh.position.set(x, y, 0.18);
+  mesh.position.set(x, y, 0.14);
   mesh.userData.baseColor = 0x273241;
   mesh.userData.activeColor = color;
   parent.add(mesh);
   addInteractive(mesh, { kind: "drumButton", label, action });
-  addLabel(parent, label, x, y, 0.25, 0.38, 0.11, { fontSize: 22, color: "#ffffff" });
+  addLabel(parent, label, x, y, 0.20, 0.38, 0.11, { fontSize: 22, color: "#ffffff" });
   return mesh;
 }
 
 function createDrumKnob(parent, id, label, x, y, color) {
   const value = drumControls[id] ?? 0.5;
   const group = new THREE.Group();
-  group.position.set(x, y, 0.18);
+  group.position.set(x, y, 0.14);
   parent.add(group);
   const base = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.08, 32), makeMaterial({ color: 0x0a0d12, emissive: color, roughness: 0.34, metalness: 0.45 }));
   base.rotation.x = Math.PI / 2;
@@ -1417,10 +1417,10 @@ function createDrumKnob(parent, id, label, x, y, color) {
   indicator.position.set(0, 0.05, 0.06);
   group.add(indicator);
   const hit = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.36, 0.04), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }));
-  hit.position.set(x, y, 0.26);
+  hit.position.set(x, y, 0.20);
   parent.add(hit);
   addInteractive(hit, { kind: "drumKnob", id });
-  addLabel(parent, label, x, y - 0.26, 0.22, 0.36, 0.10, { fontSize: 16, color: "#f6fff8" });
+  addLabel(parent, label, x, y - 0.26, 0.18, 0.36, 0.10, { fontSize: 16, color: "#f6fff8" });
   const knob = { group, indicator, value, color };
   drumControlMeshes.set(id, knob);
   updateDrumKnobVisual(knob);
@@ -1636,11 +1636,11 @@ function buildTouchStrips(panel) {
 }
 
 function buildKeyboard() {
-  const keyboardBase = new THREE.Mesh(new THREE.BoxGeometry(5.18, 0.96, 0.16), makeMaterial({ color: 0x07090d, roughness: 0.58, metalness: 0.28 }));
-  keyboardBase.position.set(0.12, -0.72, 0.08);
+  const keyboardBase = new THREE.Mesh(new THREE.BoxGeometry(5.18, 0.96, 0.12), makeMaterial({ color: 0x07090d, roughness: 0.58, metalness: 0.28 }));
+  keyboardBase.position.set(0.12, -0.76, 0.04);
   synthGroup.add(keyboardBase);
 
-  addLabel(synthGroup, "25 KEY TOUCH SYNTH", 1.54, -1.20, 0.28, 1.35, 0.12, { fontSize: 18, color: "#9cecff" });
+  addLabel(synthGroup, "25 KEY TOUCH SYNTH", 1.54, -1.20, 0.20, 1.35, 0.12, { fontSize: 18, color: "#9cecff" });
   createOctaveButton("OCT -", -2.28, -1.16, -12);
   createOctaveButton("OCT +", -1.72, -1.16, 12);
 
@@ -1656,7 +1656,7 @@ function buildKeyboard() {
     if (isWhite) {
       const x = (whiteIndex - (whiteCount - 1) / 2) * whiteW + 0.15;
       const key = new THREE.Mesh(new THREE.BoxGeometry(whiteW * 0.92, 0.78, 0.12), makeMaterial({ color: 0xf5f0df, roughness: 0.38, metalness: 0.05 }));
-      key.position.set(x, -0.78, 0.22);
+      key.position.set(x, -0.78, 0.16);
       key.userData.baseColor = 0xf5f0df;
       key.userData.activeColor = 0x3aa6ff;
       key.userData.baseZ = key.position.z;
@@ -1670,8 +1670,8 @@ function buildKeyboard() {
       whiteIndex += 1;
     } else {
       const x = (whiteIndex - 1 - (whiteCount - 1) / 2) * whiteW + whiteW * 0.48 + 0.15;
-      const key = new THREE.Mesh(new THREE.BoxGeometry(whiteW * 0.58, 0.47, 0.16), makeMaterial({ color: 0x05070a, roughness: 0.42, metalness: 0.1 }));
-      key.position.set(x, -0.59, 0.34);
+      const key = new THREE.Mesh(new THREE.BoxGeometry(whiteW * 0.58, 0.47, 0.12), makeMaterial({ color: 0x05070a, roughness: 0.42, metalness: 0.1 }));
+      key.position.set(x, -0.59, 0.24);
       key.userData.baseColor = 0x05070a;
       key.userData.activeColor = 0xb26bff;
       key.userData.baseZ = key.position.z;
@@ -1685,7 +1685,7 @@ function buildKeyboard() {
 
 function createOctaveButton(label, x, y, semitoneDelta) {
   const mesh = createButton(synthGroup, label, x, y, 0xffdf6e, { kind: "octave", semitoneDelta }, { w: 0.45, h: 0.18 });
-  mesh.position.z = 0.32;
+  mesh.position.z = 0.24;
 }
 
 function setButtonActive(mesh, active, color) {

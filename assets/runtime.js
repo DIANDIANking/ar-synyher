@@ -2035,11 +2035,12 @@ function bindCanvasEvents(canvas) {
   const getHit = (event) => {
     resizeCanvas();
     syncActiveModelMatrix();
+    // clientWidth/Height 保证 CSS 像素，避免 getBoundingClientRect 在部分浏览器返回设备像素
+    const cw = canvas.clientWidth || window.innerWidth;
+    const ch = canvas.clientHeight || window.innerHeight;
     const rect = canvas.getBoundingClientRect();
-    const cw = rect.width || canvas.clientWidth || window.innerWidth;
-    const ch = rect.height || canvas.clientHeight || window.innerHeight;
-    const nx = clamp((event.clientX - (rect.left || 0)) / cw, 0, 1);
-    const ny = clamp((event.clientY - (rect.top || 0)) / ch, 0, 1);
+    const nx = clamp((event.clientX - (rect ? rect.left : 0)) / cw, 0, 1);
+    const ny = clamp((event.clientY - (rect ? rect.top : 0)) / ch, 0, 1);
     pointer.x = nx * 2 - 1;
     pointer.y = 1 - ny * 2;
     camera.updateMatrixWorld(true);

@@ -2735,8 +2735,11 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         const pointer = getRuntimeEventPointer(evt);
         const camera = this.el.sceneEl.camera;
         if (!camera) return null;
-        this.mouse.x = (pointer.x / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(pointer.y / window.innerHeight) * 2 + 1;
+        // 使用 canvas 实际尺寸和位置做精确 NDC 映射，修复触摸位置偏移
+        const canvas = this.el.sceneEl.canvas || this.el.sceneEl.renderer.domElement;
+        const canvasRect = canvas.getBoundingClientRect();
+        this.mouse.x = ((pointer.x - canvasRect.left) / canvasRect.width) * 2 - 1;
+        this.mouse.y = -((pointer.y - canvasRect.top) / canvasRect.height) * 2 + 1;
         this.raycaster.setFromCamera(this.mouse, camera);
         this.el.object3D.updateMatrixWorld();
         const hits = this.raycaster.intersectObjects(this.interactives, false);
@@ -3147,8 +3150,11 @@ AFRAME.registerComponent('runtime-drum-machine', {
         const pointer = getRuntimeEventPointer(evt);
         const camera = this.el.sceneEl.camera;
         if (!camera) return null;
-        this.mouse.x = (pointer.x / window.innerWidth) * 2 - 1;
-        this.mouse.y = -(pointer.y / window.innerHeight) * 2 + 1;
+        // 使用 canvas 实际尺寸和位置做精确 NDC 映射，修复触摸位置偏移
+        const canvas = this.el.sceneEl.canvas || this.el.sceneEl.renderer.domElement;
+        const canvasRect = canvas.getBoundingClientRect();
+        this.mouse.x = ((pointer.x - canvasRect.left) / canvasRect.width) * 2 - 1;
+        this.mouse.y = -((pointer.y - canvasRect.top) / canvasRect.height) * 2 + 1;
         this.raycaster.setFromCamera(this.mouse, camera);
         this.el.object3D.updateMatrixWorld();
         const hits = this.raycaster.intersectObjects(this.interactives, false);

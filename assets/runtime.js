@@ -1506,8 +1506,8 @@ function syncActiveModelMatrix() {
   if (!activeModelGroup || !anchor.confidence) return false;
   activeModelGroup.position.set(anchor.x, anchor.y, anchor.z);
   activeModelGroup.scale.setScalar(anchor.scale);
-  activeModelGroup.rotation.x = -0.35 + anchor.tiltY * 0.42;
-  activeModelGroup.rotation.y = anchor.tiltX * 0.42;
+  activeModelGroup.rotation.x = -0.35 + anchor.tiltY * 0.85;
+  activeModelGroup.rotation.y = anchor.tiltX * 0.85;
   activeModelGroup.rotation.z = anchor.angle;
   activeModelGroup.matrixAutoUpdate = true;
   activeModelGroup.updateMatrixWorld(true);

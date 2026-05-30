@@ -1,8 +1,8 @@
-import * as THREE from "./three.js?v=20260530-hit-align-v1";
-import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260530-hit-align-v1";
-import { createEmptyAnchor } from "./anchor.js?v=20260530-hit-align-v1";
-import { hasCameraSupport, needsHttps } from "./camera.js?v=20260530-hit-align-v1";
-import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260530-hit-align-v1";
+import * as THREE from "./three.js?v=20260530-hit-align-v2";
+import { getAllCardTargets, getCardTarget, markerResourceMap } from "./cards.js?v=20260530-hit-align-v2";
+import { createEmptyAnchor } from "./anchor.js?v=20260530-hit-align-v2";
+import { hasCameraSupport, needsHttps } from "./camera.js?v=20260530-hit-align-v2";
+import { detectCardPoseFromFrame, trackCardPoseFromFrame } from "./tracker.js?v=20260530-hit-align-v2";
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -31,7 +31,7 @@ const FADERS = [
 const PERFORMANCE_BUTTONS = ["GLIDE", "ARP", "HOLD"];
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 const WHITE_PCS = new Set([0, 2, 4, 5, 7, 9, 11]);
-const BUILD_ID = "20260530-hit-align-v1";
+const BUILD_ID = "20260530-hit-align-v2";
 const REQUIRED_CARD_ID = "hechengqi";
 const PROMPT_FIND_CARD = "请将乐器识别卡放入画面中";
 const MARKER_SCAN_INTERVAL = 0;
@@ -50,6 +50,7 @@ const MARKER_REFERENCE_SIZE = 0.36;
 const MARKER_REFERENCE_DISTANCE = 6.1;
 const MARKER_MIN_DISTANCE = 2.35;
 const MARKER_MAX_DISTANCE = 12.5;
+const HIT_TEST_PADDING_PX = 10;
 const USER_SCALE_LIMITS = {
   min: 0.85,
   max: 3.4
@@ -186,6 +187,8 @@ const markerPosePosition = new THREE.Vector3();
 const markerPoseQuaternion = new THREE.Quaternion();
 const markerPoseSourceScale = new THREE.Vector3();
 const markerPoseCurrentScale = new THREE.Vector3();
+const hitTestBox = new THREE.Box3();
+const hitTestCorner = new THREE.Vector3();
 const arDebugState = {
   BUILD_ID,
   markerFound: false,
@@ -1512,6 +1515,117 @@ function syncActiveModelMatrix() {
   return true;
 }
 
+function collectActiveInteractiveObjects() {
+  const all = [];
+  const collect = (obj) => {
+    if (!obj) return;
+    if (obj.userData?.interaction) all.push(obj);
+    if (obj.children?.length) obj.children.forEach(collect);
+  };
+  if (activeModelGroup) collect(activeModelGroup);
+  return all;
+}
+
+function isWorldVisible(object) {
+  let current = object;
+  while (current) {
+    if (current.visible === false) return false;
+    current = current.parent;
+  }
+  return true;
+}
+
+function interactionPriority(object) {
+  const interaction = object?.userData?.interaction;
+  if (!interaction) return 50;
+  if (interaction.kind === "key") {
+    const pc = ((interaction.midi % 12) + 12) % 12;
+    return WHITE_PCS.has(pc) ? 12 : 2;
+  }
+  if (interaction.kind === "drumPad") return 3;
+  if (interaction.kind === "fader" || interaction.kind === "strip" || interaction.kind === "drumKnob") return 5;
+  if (interaction.kind === "knob") return 6;
+  if (interaction.kind === "preset" || interaction.kind === "wave" || interaction.kind === "performance" || interaction.kind === "octave" || interaction.kind === "drumButton") return 7;
+  return 10;
+}
+
+function screenBoundsForInteractive(object, rect) {
+  const geometry = object?.geometry;
+  if (!geometry) return null;
+  if (!geometry.boundingBox) geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let visibleCorners = 0;
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) {
+        hitTestCorner.set(x, y, z).applyMatrix4(object.matrixWorld).project(camera);
+        if (Number.isFinite(hitTestCorner.x) && Number.isFinite(hitTestCorner.y)) {
+          visibleCorners += 1;
+          const sx = rect.left + ((hitTestCorner.x + 1) * 0.5) * rect.width;
+          const sy = rect.top + ((1 - hitTestCorner.y) * 0.5) * rect.height;
+          minX = Math.min(minX, sx);
+          minY = Math.min(minY, sy);
+          maxX = Math.max(maxX, sx);
+          maxY = Math.max(maxY, sy);
+        }
+      }
+    }
+  }
+  if (!visibleCorners || !Number.isFinite(minX) || !Number.isFinite(minY)) return null;
+  const width = Math.max(1, maxX - minX);
+  const height = Math.max(1, maxY - minY);
+  return {
+    minX,
+    minY,
+    maxX,
+    maxY,
+    width,
+    height,
+    area: width * height,
+    centerX: (minX + maxX) * 0.5,
+    centerY: (minY + maxY) * 0.5
+  };
+}
+
+function getScreenSpaceHit(event, objects, rect) {
+  if (!camera || !objects.length) return null;
+  let best = null;
+  for (const object of objects) {
+    if (!isWorldVisible(object) || !isDescendantOf(object, activeModelGroup)) continue;
+    const bounds = screenBoundsForInteractive(object, rect);
+    if (!bounds) continue;
+    const pad = HIT_TEST_PADDING_PX;
+    if (
+      event.clientX < bounds.minX - pad ||
+      event.clientX > bounds.maxX + pad ||
+      event.clientY < bounds.minY - pad ||
+      event.clientY > bounds.maxY + pad
+    ) {
+      continue;
+    }
+    const dx = event.clientX - bounds.centerX;
+    const dy = event.clientY - bounds.centerY;
+    const distance = Math.hypot(dx, dy);
+    const priority = interactionPriority(object);
+    const score = priority * 100000 + bounds.area + distance * 18;
+    if (!best || score < best.score) {
+      hitTestBox.setFromObject(object);
+      best = {
+        score,
+        object,
+        point: hitTestBox.getCenter(new THREE.Vector3()),
+        distance
+      };
+    }
+  }
+  return best;
+}
+
 function createButton(parent, label, x, y, color, interaction, size = { w: 0.58, h: 0.22 }) {
   const mat = makeMaterial({ color: 0x26313e, emissive: 0x000000, roughness: 0.42, metalness: 0.25 });
   const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.w, size.h, 0.08), mat);
@@ -1910,8 +2024,8 @@ function updateTransformGesture() {
   const distance = Math.max(1, pointerDistance(a, b));
   const ratio = distance / transformGesture.startDistance;
   userTransform.scale = clamp(transformGesture.startScale * ratio, USER_SCALE_LIMITS.min, USER_SCALE_LIMITS.max);
-  // 缩放后立即同步世界矩阵，确保后续命中检测使用最新姿态
-  if (activeModelGroup) activeModelGroup.updateMatrixWorld(true);
+  // 缩放后立即重写模型矩阵，确保视觉和命中检测使用同一套当前姿态。
+  syncActiveModelMatrix();
   updateDisplay(state.currentPreset, state.currentWave, `SCALE ${Math.round(userTransform.scale * 100)}`);
 }
 
@@ -1931,13 +2045,9 @@ function bindCanvasEvents(canvas) {
     camera.updateMatrixWorld(true);
     scene.updateMatrixWorld(true);
     raycaster.setFromCamera(pointer, camera);
-    // 从 activeModelGroup 递归收集所有交互物体
-    const all = [];
-    const collect = (obj) => {
-      if (obj.userData && obj.userData.interaction) all.push(obj);
-      if (obj.children) obj.children.forEach(collect);
-    };
-    if (activeModelGroup) collect(activeModelGroup);
+    const all = collectActiveInteractiveObjects();
+    const screenHit = getScreenSpaceHit(event, all.length ? all : interactives, rect);
+    if (screenHit) return screenHit;
     const hits = raycaster.intersectObjects(all.length ? all : interactives, false);
     return hits.find((hit) => hit.object.visible !== false && isDescendantOf(hit.object, activeModelGroup));
   };

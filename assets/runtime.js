@@ -117,7 +117,6 @@ const state = {
     cardId: REQUIRED_CARD_ID,
     instrumentType: null,
     lastSeenAt: 0,
-    poseMatrix: null,
     centerX: 0.5,
     centerY: 0.52,
     size: 0.24,
@@ -1504,13 +1503,13 @@ function currentMarkerPoseMatrix() {
 }
 
 function syncActiveModelMatrix() {
-  if (!activeModelGroup || !state.marker.locked) return false;
-  const poseMatrix = currentMarkerPoseMatrix();
-  if (!poseMatrix) return false;
-  anchor.poseMatrix = poseMatrix;
-  activeModelGroup.matrix.copy(poseMatrix);
-  activeModelGroup.matrixAutoUpdate = false;
-  activeModelGroup.matrixWorldNeedsUpdate = true;
+  if (!activeModelGroup || !anchor.confidence) return false;
+  activeModelGroup.position.set(anchor.x, anchor.y, anchor.z);
+  activeModelGroup.scale.setScalar(anchor.scale);
+  activeModelGroup.rotation.x = -0.35 + anchor.tiltY * 0.42;
+  activeModelGroup.rotation.y = anchor.tiltX * 0.42;
+  activeModelGroup.rotation.z = anchor.angle;
+  activeModelGroup.matrixAutoUpdate = true;
   activeModelGroup.updateMatrixWorld(true);
   return true;
 }
@@ -2559,19 +2558,6 @@ function updateMarkerFromPose(pose, scanScale, details) {
   const angle = Math.atan2(tr.py - tl.py, tr.px - tl.px);
   const tiltX = clamp((rightH - leftH) / Math.max(leftH + rightH, 1), -0.38, 0.38);
   const tiltY = clamp((bottomW - topW) / Math.max(topW + bottomW, 1), -0.38, 0.38);
-  const poseMatrix = composeMarkerPoseMatrixFromCorners({
-    cardId: details.cardId,
-    tl,
-    tr,
-    br,
-    bl,
-    centerX: center.x,
-    centerY: center.y,
-    size: Math.max(0.001, projectedSize),
-    angle,
-    tiltX,
-    tiltY
-  });
   state.marker = {
     locked: true,
     payload: details.payload,
@@ -2579,7 +2565,6 @@ function updateMarkerFromPose(pose, scanScale, details) {
     instrumentType: details.instrumentType || "synthesizer",
     recognizedText: details.recognizedText || "",
     lastSeenAt: now,
-    poseMatrix,
     centerX: center.x,
     centerY: center.y,
     size: Math.max(0.001, projectedSize),
@@ -2762,7 +2747,8 @@ function updateAnchor(portrait) {
     anchor.confidence = 0;
     return;
   }
-  anchor.poseMatrix = currentMarkerPoseMatrix() || state.marker.poseMatrix || composeMarkerPoseMatrix(state.marker);
+  const target = markerTargetForView();
+  Object.assign(anchor, target);
   anchor.confidence = 1;
 }
 
@@ -2791,7 +2777,7 @@ function render(time = 0) {
       requestAnimationFrame(render);
       return;
     }
-    if (anchor.poseMatrix) syncActiveModelMatrix();
+    syncActiveModelMatrix();
   }
 
   renderer.render(scene, camera);

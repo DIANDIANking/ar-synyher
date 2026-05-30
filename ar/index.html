@@ -2740,9 +2740,11 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         const canvasRect = canvas.getBoundingClientRect();
         this.mouse.x = ((pointer.x - canvasRect.left) / canvasRect.width) * 2 - 1;
         this.mouse.y = -((pointer.y - canvasRect.top) / canvasRect.height) * 2 + 1;
+        this.el.sceneEl.object3D.updateMatrixWorld(true);
+        camera.updateMatrixWorld(true);
+        this.el.object3D.updateMatrixWorld(true);
         this.raycaster.setFromCamera(this.mouse, camera);
-        this.el.object3D.updateMatrixWorld();
-        const hits = this.raycaster.intersectObjects(this.interactives, false);
+        const hits = this.raycaster.intersectObjects(this.interactives, true);
         for (let i = 0; i < hits.length; i++) {
             const obj = hits[i].object;
             const it = obj.userData && obj.userData.interaction;
@@ -2755,6 +2757,8 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         if (!this.el.getAttribute('visible')) return;
         if (modelGestureMode !== 'interact') return;
         if (!this.raycaster || !this.mouse) { console.warn('raycaster/mouse not ready'); return; }
+        const pointer = getRuntimeEventPointer(evt);
+        const pointerId = getRuntimePointerId(evt);
         const hit = this.raycastInteractives(evt);
         if (!hit) { console.log('no hit ndc:', this.mouse.x.toFixed(2), this.mouse.y.toFixed(2), 'interactives:', this.interactives.length); return; }
         const { object, interaction } = hit;
@@ -2762,8 +2766,6 @@ AFRAME.registerComponent('runtime-synth-workstation', {
         if (evt.preventDefault) evt.preventDefault();
         runtimeControlPointerActive = true;
         this.pointerHandledUntil = Date.now() + 500;
-        const pointer = getRuntimeEventPointer(evt);
-        const pointerId = getRuntimePointerId(evt);
 
         if (interaction.kind === 'preset') return this.selectPreset(interaction.id);
         if (interaction.kind === 'wave') return this.selectWave(interaction.id);
@@ -3155,9 +3157,11 @@ AFRAME.registerComponent('runtime-drum-machine', {
         const canvasRect = canvas.getBoundingClientRect();
         this.mouse.x = ((pointer.x - canvasRect.left) / canvasRect.width) * 2 - 1;
         this.mouse.y = -((pointer.y - canvasRect.top) / canvasRect.height) * 2 + 1;
+        this.el.sceneEl.object3D.updateMatrixWorld(true);
+        camera.updateMatrixWorld(true);
+        this.el.object3D.updateMatrixWorld(true);
         this.raycaster.setFromCamera(this.mouse, camera);
-        this.el.object3D.updateMatrixWorld();
-        const hits = this.raycaster.intersectObjects(this.interactives, false);
+        const hits = this.raycaster.intersectObjects(this.interactives, true);
         for (let i = 0; i < hits.length; i++) {
             const obj = hits[i].object;
             const it = obj.userData && obj.userData.interaction;
@@ -3170,6 +3174,8 @@ AFRAME.registerComponent('runtime-drum-machine', {
         if (!this.el.getAttribute('visible')) return;
         if (modelGestureMode !== 'interact') return;
         if (!this.raycaster || !this.mouse) { console.warn('raycaster/mouse not ready'); return; }
+        const pointer = getRuntimeEventPointer(evt);
+        const pointerId = getRuntimePointerId(evt);
         const hit = this.raycastInteractives(evt);
         if (!hit) { console.log('no hit ndc:', this.mouse.x.toFixed(2), this.mouse.y.toFixed(2), 'interactives:', this.interactives.length); return; }
         const { object, interaction } = hit;
@@ -4282,7 +4288,8 @@ document.addEventListener('DOMContentLoaded', function() {
    <a-marker id="marker27" type="pattern" url="assets/patterns/pattern-drum_machine.patt" instrument-handler>
         <a-entity id="model27" position="0 0 0" rotation="0 0 0" touch-handler="minScale: 0.45; maxScale: 2.8" visible="false"></a-entity>
    </a-marker>
-   <a-entity camera cursor="rayOrigin: mouse; fuse: false" raycaster="objects: .playable"></a-entity>
+   <!-- <a-entity camera cursor="rayOrigin: mouse; fuse: false" raycaster="objects: .playable"></a-entity> -->
+   <a-entity camera></a-entity>
   </a-scene>
   
  </body>
